@@ -1,0 +1,15 @@
+name: ion-image
+channels:
+  - defaults
+dependencies:
+  - scipy
+  - numpy
+  - python=3.7
+  - torchvision
+  - pytorch
+  - cudatoolkit=10.2
+  - h5py
+  - numba
+  - ipython
+prefix: /home/kelvin/anaconda3/envs/ion-image
+
