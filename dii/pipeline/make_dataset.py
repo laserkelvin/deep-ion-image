@@ -50,12 +50,16 @@ def create_ion_image_composite(filepath: str, n_images=300000, dim=1200, max_ion
     seed = np.random.seed(seed)
     n_ions = np.random.randint(10000, max_ions, size=n_images)
     # generate the range of beta parameters -1 to +2.
-    betas = (np.random.rand(n_images) * 3.) - 1.
+    betas = np.random.uniform(-1., 2., size=n_images)
     sigmas = np.random.rand(n_images) * 10.
     h5_file = h5py.File(filepath, mode="a")
-    images = h5_file.require_dataset("true", (n_images, dim, dim), dtype=np.int16, compression="gzip", compression_opts=9)
-    for index, (ion_count, beta, sigma) in enumerate(zip(n_ions, betas, sigmas)):
-        true_image = generate_ion_image(dim, ion_count, sigma, beta)
-        images[index,:,:] = true_image
+    beta_values = h5_file.create_dataset("beta", (n_images,), dtype=np.float32, compression="gzip", data=betas)
+    images = h5_file.require_dataset("true", (n_images, dim, dim), dtype=np.uint8, compression="gzip", compression_opts=5)
+    try:
+        for index, (ion_count, beta, sigma) in enumerate(zip(n_ions, betas, sigmas)):
+            true_image = generate_ion_image(dim, ion_count, sigma, beta)
+            images[index,:,:] = true_image
+    finally:
+        h5_file.close()
 
 

@@ -2,11 +2,11 @@
 from dii.pipeline import make_dataset
 
 
-N_IMAGES = 50
+N_IMAGES = 100000
 FILEPATH = "ion_images.h5"
 
 # Square image dimensions
-DIM = 1200
+DIM = 1600
 MAX_IONS = 500000
 
 SEED = 42
