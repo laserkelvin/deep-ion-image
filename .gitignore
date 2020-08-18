@@ -87,3 +87,6 @@ target/
 .mypy_cache/
 
 *.h5
+
+# slurm outputs 
+slurm*
