@@ -11,6 +11,7 @@ from typing import Tuple
 import h5py
 import numpy as np
 import abel
+from loguru import logger
 from scipy.special import eval_legendre
 from numba import njit
 
@@ -32,7 +33,7 @@ def generate_ion_image(dim=1000, nions=10000, sigma=5., beta=0.) -> np.ndarray:
     center = dim // 2
     # This sets the kinetic energy to be randomly between some
     # tolerance value
-    ker_norm = np.random.uniform(low=10., high=center - 10.)
+    ker_norm = np.random.uniform(low=0., high=center - 10.)
     ker_distribution = np.random.normal(ker_norm, sigma, size=nions)
     theta, p_theta = generate_angular_distribution(beta)
     # Make likelihoods sum to one
@@ -47,18 +48,24 @@ def generate_ion_image(dim=1000, nions=10000, sigma=5., beta=0.) -> np.ndarray:
 
 
 def create_ion_image_composite(filepath: str, n_images=300000, dim=1200, max_ions=500000, max_sigma=10., seed=42) -> np.ndarray:
+    logger.add("LOG")
+    logger.info(f"Random seed: {seed}")
+    logger.info(f"Generating {n_images} ion images.")
     seed = np.random.seed(seed)
     n_ions = np.random.randint(10000, max_ions, size=n_images)
     # generate the range of beta parameters -1 to +2.
     betas = np.random.uniform(-1., 2., size=n_images)
-    sigmas = np.random.rand(n_images) * 10.
+    sigmas = np.random.rand(n_images) * sigma
     h5_file = h5py.File(filepath, mode="a")
     beta_values = h5_file.create_dataset("beta", (n_images,), dtype=np.float32, compression="gzip", data=betas)
+    ion_count = h5_file.create_dataset("counts", (n_images,), data=n_ions, compression="gzip")
     images = h5_file.require_dataset("true", (n_images, dim, dim), dtype=np.uint8, compression="gzip", compression_opts=5)
     try:
         for index, (ion_count, beta, sigma) in enumerate(zip(n_ions, betas, sigmas)):
             true_image = generate_ion_image(dim, ion_count, sigma, beta)
             images[index,:,:] = true_image
+            if index % 1000 == 0:
+                logger.info(f"Done {index+1} images.")
     finally:
         h5_file.close()
 
