@@ -2,7 +2,7 @@
 from dii.pipeline import make_dataset
 
 
-N_IMAGES = 100000
+N_IMAGES = 30000
 FILEPATH = "ion_images.h5"
 
 # Square image dimensions
