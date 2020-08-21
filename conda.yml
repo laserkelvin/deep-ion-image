@@ -1,6 +1,8 @@
 name: ion-image
 channels:
   - defaults
+  - conda-forge
+  - pytorch
 dependencies:
   - scipy
   - numpy
