@@ -2,13 +2,14 @@ from typing import Tuple, Union, Iterable
 
 import h5py
 import torch
+import numpy as np
 from torch.utils import data
 from torchvision.transforms import Compose
 
 
 class H5Dataset(data.Dataset):
     def __init__(
-        self, path: str, key: str, transform: Union[None, Iterable, "Compose"] = None
+        self, path: str, key: str, transform: Union[None, Iterable, "Compose"] = None, normalize=True
     ):
         """
         Instantiate the H5Dataset object, with the necessary arguments `path` and `key`
@@ -32,6 +33,7 @@ class H5Dataset(data.Dataset):
         self.file_path = path
         self.key = key
         self.dataset = None
+        self.normalize = normalize
         if type(transform) == list or type(transform) == tuple:
             self.transform = Compose(transform)
         else:
@@ -42,10 +44,12 @@ class H5Dataset(data.Dataset):
     def __getitem__(self, index: int) -> torch.Tensor:
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, "r")[self.key]
-        X = self.dataset[index]
+        X = self.dataset[index].astype(np.float32)
         # if we have a transform pipeline, run it
         if self.transform:
             return self.transform(X)
+        if self.normalize:
+            np.divide(X, X.max(), out=X)
         return X
 
     def __len__(self):
@@ -60,6 +64,8 @@ class CompositeH5Dataset(H5Dataset):
         transform: Union[None, Iterable, "Compose"] = None,
         scale: float = 2.0,
         seed=None,
+        normalize=True,
+        indices=None
     ):
         """
         Inheriting from `H5Dataset`, this version is purely stochastic by generating
@@ -86,10 +92,15 @@ class CompositeH5Dataset(H5Dataset):
         seed : [type], optional
             Random seed to use for the image generation, by default None
         """
-        super().__init__(path, key, transform)
+        super().__init__(path, key, transform, normalize)
         self.seed = seed
         self.scale = scale
-        self.indices = np.arange(len(self))
+        # prescribed indices specify which images correspond to training
+        # testing and validation, etc
+        if indices is None:
+            self.indices = np.arange(len(self))
+        else:
+            self.indices = indices
 
     def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -115,32 +126,41 @@ class CompositeH5Dataset(H5Dataset):
         # decay distribution
         n_composites = int(np.random.exponential(self.scale) + 1)
         # choose the images randomly
-        chosen = np.random.choice(self.indices, size=n_composites)
+        chosen = np.random.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
-            chosen.sort()
-        X = self.dataset[chosen]
+            chosen = sorted(chosen)
+        X = self.dataset[chosen].astype(np.float32)
         # if we have multiple images, flatten to a single composite
         # so that the dimensions are H x W expected by PyAbel
         if X.ndim == 3:
             X = X.sum(axis=0)
         # if we have a compose pipeline defined, run it
         if self.transform:
-            return (self.transform(X), torch.FloatTensor(X).unsqueeze(0))
+            target = self.transform(X)
+        else:
+            target = X
+        if self.normalize:
+            np.divide(X, X.max(), out=X)
         # otherwise, just make a channel dimension
         X = torch.FloatTensor(X).unsqueeze(0)
-        return (X, X)
+        return (target, X)
 
 
 class SelectiveComposite(H5Dataset):
-    def __init__(self, path: str, key: str, transform=None):
-        super().__init__(path, key, transform)
+    def __init__(self, path: str, key: str, transform=None, normalize=True):
+        super().__init__(path, key, transform, normalize)
 
     def __getitem__(self, indices):
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, "r")[self.key]
         indices = sorted(indices)
-        X = self.dataset[indices].sum(axis=0).astype(float)
+        X = self.dataset[indices].sum(axis=0).astype(np.float32)
         if self.transform:
-            return (self.transform(X), torch.FloatTensor(X).unsqueeze(0))
+            target = self.transform(X)
+        else:
+            target = X
+        if self.normalize:
+            np.divide(X, X.max(), out=X)
+        # otherwise, just make a channel dimension
         X = torch.FloatTensor(X).unsqueeze(0)
-        return (X, X)
+        return (target, X)

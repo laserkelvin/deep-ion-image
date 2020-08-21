@@ -40,7 +40,7 @@ class ProcessNumpyArray(object):
 
 # this is a pipeline that has been tested and is known to provide the "right" kind
 # of behaviour AFAIK
-default_pipeline = transforms.Compose(
+default_pipeline = tf.Compose(
     [
         AbelProjection(),
         ProcessNumpyArray(),
@@ -50,4 +50,3 @@ default_pipeline = transforms.Compose(
         tf.ToTensor(),
     ]
 )
-
