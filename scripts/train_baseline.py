@@ -32,4 +32,8 @@ train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WO
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
 dev_loader = DataLoader(dev_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
 
-trainer = pl.
+logger = pl.loggers.WandbLogger(project="deep-ion-image")
+
+trainer = pl.Trainer()
+
+trainer.fit()

@@ -95,12 +95,19 @@ class CompositeH5Dataset(H5Dataset):
         super().__init__(path, key, transform, normalize)
         self.seed = seed
         self.scale = scale
+        self.indices = None
         # prescribed indices specify which images correspond to training
         # testing and validation, etc
         if indices is None:
             self.indices = np.arange(len(self))
         else:
             self.indices = indices
+
+    def __len__(self):
+        if self.indices is None:
+            return super().__len__(self)
+        else:
+            return len(self.indices)
 
     def __getitem__(self, index) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -164,3 +171,9 @@ class SelectiveComposite(H5Dataset):
         # otherwise, just make a channel dimension
         X = torch.FloatTensor(X).unsqueeze(0)
         return (target, X)
+
+    def __len__(self):
+        if self.indices is None:
+            return super().__len__(self)
+        else:
+            return len(self.indices)
