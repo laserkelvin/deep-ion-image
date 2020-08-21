@@ -14,6 +14,7 @@ import abel
 from loguru import logger
 from scipy.special import eval_legendre
 from numba import njit
+from tqdm.auto import tqdm
 
 
 def pol2cart(angle: np.ndarray, velocity: np.ndarray, image_center=400) -> Tuple[np.ndarray, np.ndarray]:
@@ -47,7 +48,7 @@ def generate_ion_image(dim=1000, nions=10000, sigma=5., beta=0.) -> np.ndarray:
     return image
 
 
-def create_ion_image_composite(filepath: str, n_images=300000, dim=1200, max_ions=500000, max_sigma=10., seed=42) -> np.ndarray:
+def create_ion_image_composite(filepath: str, n_images=300000, dim=1200, max_ions=500000, max_sigma=50., seed=42) -> np.ndarray:
     logger.add("LOG")
     logger.info(f"Random seed: {seed}")
     logger.info(f"Generating {n_images} ion images.")
@@ -55,17 +56,16 @@ def create_ion_image_composite(filepath: str, n_images=300000, dim=1200, max_ion
     n_ions = np.random.randint(10000, max_ions, size=n_images)
     # generate the range of beta parameters -1 to +2.
     betas = np.random.uniform(-1., 2., size=n_images)
+    sigma = np.random.uniform(1., max_sigma)
     sigmas = np.random.rand(n_images) * sigma
     h5_file = h5py.File(filepath, mode="a")
     beta_values = h5_file.create_dataset("beta", (n_images,), dtype=np.float32, compression="gzip", data=betas)
     ion_count = h5_file.create_dataset("counts", (n_images,), data=n_ions, compression="gzip")
     images = h5_file.require_dataset("true", (n_images, dim, dim), dtype=np.uint8, compression="gzip", compression_opts=5)
     try:
-        for index, (ion_count, beta, sigma) in enumerate(zip(n_ions, betas, sigmas)):
+        for index, (ion_count, beta, sigma) in tqdm(enumerate(zip(n_ions, betas, sigmas))):
             true_image = generate_ion_image(dim, ion_count, sigma, beta)
             images[index,:,:] = true_image
-            if index % 1000 == 0:
-                logger.info(f"Done {index+1} images.")
     finally:
         h5_file.close()
 
