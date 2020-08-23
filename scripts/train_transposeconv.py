@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from dii.pipeline.datautils import CompositeH5Dataset
 from dii.pipeline.transforms import default_pipeline
-from dii.models.base import AutoEncoder, BaseEncoder, BaseDecoder
+from dii.models.base import AutoEncoder, BaseEncoder, TransposeDecoder
 from dii.utils import checkpoint_callback
 
 
@@ -20,7 +20,7 @@ else:
     GPU = 0
 
 
-autoencoder = AutoEncoder(BaseEncoder(), BaseDecoder())
+autoencoder = AutoEncoder(BaseEncoder(), TransposeDecoder())
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
@@ -31,16 +31,16 @@ with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
 train_dataset = CompositeH5Dataset(
     "../data/raw/ion_images.h5", "true", default_pipeline, indices=train_indices
 )
-#test_dataset = CompositeH5Dataset(
-#    "../data/raw/ion_images.h5", "true", default_pipeline, indices=test_indices
-#)
+test_dataset = CompositeH5Dataset(
+    "../data/raw/ion_images.h5", "true", default_pipeline, indices=test_indices
+)
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
-#test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
 
-logger = pl.loggers.WandbLogger(name="baseline", project="deep-ion-image")
+logger = pl.loggers.WandbLogger(name="baseline-trans", project="deep-ion-image")
 logger.watch(autoencoder, log="all")
 
-trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=3)
+trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=4)
 
 trainer.fit(autoencoder, train_loader)
