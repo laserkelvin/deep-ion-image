@@ -65,9 +65,3 @@ class AutoEncoder(pl.LightningModule):
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
-    def validation_step(self, batch, batch_idx):
-        X, Y = batch
-        pred_Y = self.forward(X)
-        loss = F.binary_cross_entropy(pred_Y, Y)
-        tensorboard_logs = {"validation_loss": loss}
-        return {"loss": loss, "log": tensorboard_logs}

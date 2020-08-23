@@ -21,6 +21,7 @@ else:
 
 
 autoencoder = AutoEncoder(BaseEncoder(), BaseDecoder())
+
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
     test_indices = np.array(h5_file["test"])
@@ -40,7 +41,6 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORK
 logger = pl.loggers.WandbLogger(name="baseline", project="deep-ion-image")
 logger.watch(autoencoder, log="all")
 
-trainer = pl.Trainer(logger=logger, max_epochs=15, gpus=GPU)
+trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, resume_from_checkpoint="deep-ion-image/dd109y30/checkpoints/epoch=9.ckpt")
 
-trainer.fit(autoencoder, train_loader, test_loader)
-trainer.save_checkpoint("baseline_complete.pt")
+trainer.fit(autoencoder, train_loader)
