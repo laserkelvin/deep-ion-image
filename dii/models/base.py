@@ -1,6 +1,8 @@
 
 import torch
-from pytorch_lightning import LightingModule
+import pytorch_lightning as pl
+from torch import nn
+from torch.nn import functional as F
 from dii.models.layers import ConvolutionBlock, DecoderBlock
 
 
@@ -41,7 +43,7 @@ class BaseDecoder(nn.Module):
         return output
 
 
-class AutoEncoder(LightningModule):
+class AutoEncoder(pl.LightningModule):
     def __init__(self, encoder, decoder, lr=1e-3):
         super().__init__()
         self.encoder = encoder

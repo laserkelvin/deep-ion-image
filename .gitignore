@@ -90,3 +90,5 @@ target/
 
 # slurm outputs 
 slurm*
+
+wandb/

@@ -1,4 +1,6 @@
+import os
 
+from pytorch_lightning.callbacks import ModelCheckpoint
 import numpy as np
 import numba
 
@@ -40,3 +42,15 @@ def radial_integration(image: np.ndarray) -> np.ndarray:
                 r_bins[r] += image[x+center, y+center]
     hist_max = r_bins.max()
     return r_bins / hist_max
+
+
+# DEFAULTS used by the Trainer
+checkpoint_callback = ModelCheckpoint(
+    filepath=os.getcwd(),
+    save_top_k=1,
+    verbose=True,
+    monitor='validation_loss',
+    mode='min',
+    prefix=''
+)
+
