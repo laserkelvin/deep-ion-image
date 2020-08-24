@@ -1,46 +1,73 @@
+from typing import Dict, List
 
 import torch
 import pytorch_lightning as pl
 from torch import nn
 from torch.nn import functional as F
-from dii.models.layers import ConvolutionBlock, DecoderBlock
+from dii.models import layers
 
 
 class BaseEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv_1 = ConvolutionBlock(1, 8, 11, pool=nn.MaxPool2d(4))
-        self.conv_2 = ConvolutionBlock(8, 16, 7)
-        self.conv_3 = ConvolutionBlock(16, 32, 5, pool=nn.MaxPool2d(4))
-        self.conv_4 = ConvolutionBlock(32, 64, 3)
-        self.conv_5 = ConvolutionBlock(64, 128, 3, pool=nn.MaxPool2d(4))
-        self.conv_6 = ConvolutionBlock(128, 256, 1, activation=None)
-        self.layers = [self.conv_1, self.conv_2, self.conv_3, self.conv_4, self.conv_5, self.conv_6]
+        self.layers = nn.Sequential(
+            layers.ConvolutionBlock(1, 8, 11, pool=nn.MaxPool2d(4)),
+            layers.ConvolutionBlock(8, 16, 7),
+            layers.ConvolutionBlock(16, 32, 5, pool=nn.MaxPool2d(4)),
+            layers.ConvolutionBlock(32, 64, 3),
+            layers.ConvolutionBlock(64, 128, 3, pool=nn.MaxPool2d(4)),
+            layers.ConvolutionBlock(128, 256, 1, activation=None),
+        )
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        output = self.conv_1(X)
-        for layer in self.layers[1:]:
-            output = layer(output)
+        output = self.layers(X)
         return output
 
 
 class BaseDecoder(nn.Module):
-    def __init__(self, sigmoid=True):
+    def __init__(self):
         super().__init__()
-        self.conv_1 = DecoderBlock(256, 128, 5, upsample_size=8)
-        self.conv_2 = DecoderBlock(128, 64, 7, upsample_size=8)
-        self.conv_3 = DecoderBlock(64, 32, 5, upsample_size=6)
-        self.conv_4 = DecoderBlock(32, 16, 3, upsample_size=2)
-        self.conv_5 = DecoderBlock(16, 8, 3, upsample_size=2)
-        self.conv_6 = DecoderBlock(8, 1, 3, upsample_size=2)
-        self.conv_7 = DecoderBlock(1, 1, 3,  activation=nn.Sigmoid(), upsample_size=1)
-        self.layers = [self.conv_1, self.conv_2, self.conv_3, self.conv_4, self.conv_5, self.conv_6, self.conv_7]
+        self.layers = nn.Sequential(
+            layers.DecoderBlock(256, 128, 5, upsample_size=8),
+            layers.DecoderBlock(128, 64, 7, upsample_size=8),
+            layers.DecoderBlock(64, 32, 5, upsample_size=6),
+            layers.DecoderBlock(32, 16, 3, upsample_size=2),
+            layers.DecoderBlock(16, 8, 3, upsample_size=2),
+            layers.DecoderBlock(8, 1, 3, upsample_size=2),
+            layers.DecoderBlock(1, 1, 3, activation=nn.Sigmoid(), upsample_size=1),
+        )
 
     def forward(self, X: torch.Tensor):
-        output = self.conv_1(X)
-        for layer in self.layers[1:]:
-            output = layer(output)
+        output = self.layers(X)
         return output
+
+
+class TransposeDecoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.model = nn.Sequential(
+            layers.TransposeDecoderBlock(
+                256, 128, 5, stride=4, padding=1, output_padding=3
+            ),
+            layers.TransposeDecoderBlock(
+                128, 64, 2, stride=4, padding=1, output_padding=2
+            ),
+            layers.TransposeDecoderBlock(
+                64, 32, 4, stride=3, padding=1, output_padding=2
+            ),
+            layers.TransposeDecoderBlock(
+                32, 16, 3, stride=3, padding=1, output_padding=1
+            ),
+            layers.TransposeDecoderBlock(
+                16, 8, 2, stride=3, padding=0, output_padding=1
+            ),
+            layers.TransposeDecoderBlock(
+                8, 1, 2, stride=2, padding=0, batch_norm=False, activation=nn.Sigmoid()
+            ),
+        )
+
+    def forward(self, X: torch.Tensor):
+        return self.model(X)
 
 
 class AutoEncoder(pl.LightningModule):
@@ -66,38 +93,84 @@ class AutoEncoder(pl.LightningModule):
         return {"loss": loss, "log": tensorboard_logs}
 
 
-class TransposeDecoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, conv_kernel, dropout=0., activation=nn.ReLU(), batch_norm=True, **kwargs):
-        super().__init__()
-        self.conv = nn.ConvTranspose2d(in_channels, out_channels, conv_kernel, **kwargs)
-        self.activation = activation
-        self.dropout = nn.Dropout(dropout)
-        if batch_norm:
-            self.norm = nn.BatchNorm2d(out_channels)
-        else:
-            self.norm = None
+class VAE(AutoEncoder):
+    def __init__(
+        self, encoder, decoder, beta=4, encoding_dim=256, latent_dim=256, lr=0.001
+    ):
+        super().__init__(encoder, decoder, lr=lr)
+        self.fc_mu = nn.Linear(encoding_dim, latent_dim)
+        self.fc_logvar = nn.Linear(encoding_dim, latent_dim)
+        self.decoder_input = nn.Linear(latent_dim, encoding_dim)
+        self.beta = beta
+        self.encoding_dim = encoding_dim
+        self.latent_dim = latent_dim
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        output = self.conv(X)
-        if self.norm is not None:
-            output = self.norm(output)
-        if self.activation is not None:
-            output = self.activation(output)
-        output = self.dropout(output)
+    def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
+        """
+        Will a single z be enough ti compute the expectation
+        for the loss??
+        :param mu: (Tensor) Mean of the latent Gaussian
+        :param logvar: (Tensor) Standard deviation of the latent Gaussian
+        :return:
+        """
+        std = torch.exp(0.5 * log_var).mul_(torch.randn_like(log_var))
+        return std + mu
+
+    def encode(self, X: torch.Tensor) -> List[torch.Tensor]:
+        """
+        Generate an encoding
+
+        Parameters
+        ----------
+        input : Tensor
+            [description]
+
+        Returns
+        -------
+        List[Tensor]
+            [description]
+        """
+        output = self.encoder(X)
+        output = torch.flatten(output, start_dim=1)
+
+        # Split the result into mu and var components
+        # of the latent Gaussian distribution
+        mu = self.fc_mu(output)
+        log_var = self.fc_logvar(output)
+
+        return [mu, log_var]
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        output = self.decoder_input(z)
+        output = self.decoder(output.view(-1, self.latent_dim, 1, 1))
         return output
 
-
-class TransposeDecoder(nn.Module):
-    def __init__(self, sigmoid=True):
-        super().__init__()
-        self.model = nn.Sequential(
-            TransposeDecoderBlock(256, 128, 5, stride=4, padding=1, output_padding=3),
-            TransposeDecoderBlock(128, 64, 2, stride=4, padding=1, output_padding=2),
-            TransposeDecoderBlock(64, 32, 4, stride=3, padding=1, output_padding=2),
-            TransposeDecoderBlock(32, 16, 3, stride=3, padding=1, output_padding=1),
-            TransposeDecoderBlock(16, 8, 2, stride=3, padding=0, output_padding=1),
-            TransposeDecoderBlock(8, 1, 2, stride=2, padding=0, batch_norm=False, activation=nn.Sigmoid())
+    def loss_function(
+        self,
+        pred_Y: torch.Tensor,
+        Y: torch.Tensor,
+        mu: torch.Tensor,
+        log_var: torch.Tensor,
+    ) -> dict:
+        batch_size = Y.size(0)
+        recon_loss = F.binary_cross_entropy(pred_Y, Y)
+        kld_loss = torch.mean(
+            -0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0
         )
+        # at the limit of beta=1, we have regular VAE
+        loss = recon_loss + self.beta * batch_size * kld_loss
+        return {"loss": loss, "Reconstruction_Loss": recon_loss, "KLD": kld_loss}
 
-    def forward(self, X: torch.Tensor):
-        return self.model(X)
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        mu, log_var = self.encode(X)
+        z = self.reparameterize(mu, log_var)
+        output = self.decode(z)
+        return output
+
+    def training_step(self, batch, batch_idx) -> dict:
+        X, Y = batch
+        mu, log_var = self.encode(X)
+        z = self.reparameterize(mu, log_var)
+        pred_Y = self.decode(z)
+        loss_dict = self.loss_function(pred_Y, Y, mu, log_var)
+        return loss_dict
