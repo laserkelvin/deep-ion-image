@@ -43,4 +43,4 @@ logger.watch(autoencoder, log="all")
 
 trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=4)
 
-trainer.fit(autoencoder, train_loader)
+trainer.fit(autoencoder, train_loader, test_loader)

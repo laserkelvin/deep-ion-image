@@ -13,6 +13,8 @@ from dii.utils import checkpoint_callback
 
 N_WORKERS = 8
 BATCH_SIZE = 24
+TRAIN_SEED = np.random.seed(42)
+TEST_SEED = np.random.seed(1923)
 
 if torch.cuda.is_available():
     GPU = 1
@@ -27,12 +29,12 @@ with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     test_indices = np.array(h5_file["test"])
     dev_indices = np.array(h5_file["dev"])
 
-# Load up the datasets
+# Load up the datasets; random seed is set for the training set
 train_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "true", default_pipeline, indices=train_indices
+    "../data/raw/ion_images.h5", "true", default_pipeline, indices=train_indices, seed=SEED
 )
 test_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "true", default_pipeline, indices=test_indices
+    "../data/raw/ion_images.h5", "true", default_pipeline, indices=test_indices, seed=TEST_SEED
 )
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
@@ -43,4 +45,4 @@ logger.watch(vae, log="all")
 
 trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=4)
 
-trainer.fit(vae, train_loader)
+trainer.fit(vae, train_loader, test_loader)
