@@ -92,6 +92,18 @@ class AutoEncoder(pl.LightningModule):
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
+    def validation_step(self, batch, batch_idx):
+        X, Y = batch
+        pred_Y = self.forward(X)
+        loss = F.binary_cross_entropy(pred_Y, Y)
+        tensorboard_logs = {"train_loss": loss}
+        return {"validation_loss": loss}
+
+    def validation_epoch_end(self, outputs: List[dict]) -> dict:
+        avg_loss = torch.stack([x['validation_loss'] for x in outputs]).mean()
+        tensorboard_logs = {'validation_loss': avg_loss}
+        return {'avg_val_loss': avg_loss, 'log': tensorboard_logs}
+
 
 class VAE(AutoEncoder):
     def __init__(
@@ -160,7 +172,7 @@ class VAE(AutoEncoder):
         )
         # at the limit of beta=1, we have regular VAE
         loss = recon_loss + self.beta * batch_size * kld_loss
-        return {"loss": loss, "Reconstruction_Loss": recon_loss, "KLD": kld_loss}
+        return {"loss": loss, "reconstruction_loss": recon_loss, "kl_div": kld_loss}
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         mu, log_var = self.encode(X)
@@ -174,4 +186,7 @@ class VAE(AutoEncoder):
         z = self.reparameterize(mu, log_var)
         pred_Y = self.decode(z)
         loss_dict = self.loss_function(pred_Y, Y, mu, log_var)
+        logs = {}.update(**loss_dict)
+        loss_dict["logs"] = logs
         return loss_dict
+
