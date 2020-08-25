@@ -113,8 +113,9 @@ class VAE(AutoEncoder):
         :param logvar: (Tensor) Standard deviation of the latent Gaussian
         :return:
         """
-        std = torch.exp(0.5 * log_var).mul_(torch.randn_like(log_var))
-        return std + mu
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(log_var)
+        return std * eps + mu
 
     def encode(self, X: torch.Tensor) -> List[torch.Tensor]:
         """
