@@ -6,7 +6,6 @@ import wandb
 from torch.utils.data import DataLoader
 
 from dii.pipeline.datautils import CompositeH5Dataset
-from dii.pipeline.transforms import default_pipeline
 from dii.models.base import AutoEncoder, BaseEncoder, TransposeDecoder
 from dii.utils import checkpoint_callback
 
@@ -29,10 +28,10 @@ with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
 
 # Load up the datasets
 train_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "true", default_pipeline, indices=train_indices
+    "../data/raw/ion_images.h5", "true", indices=train_indices
 )
 test_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "true", default_pipeline, indices=test_indices
+    "../data/raw/ion_images.h5", "true", indices=test_indices
 )
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)

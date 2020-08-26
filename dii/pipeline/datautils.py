@@ -4,12 +4,14 @@ import h5py
 import torch
 import numpy as np
 from torch.utils import data
-from torchvision.transforms import Compose
+from torchvision.transforms import Compose, ToTensor
+
+from dii.pipeline.transforms import central_pipeline, projection_pipeline
 
 
 class H5Dataset(data.Dataset):
     def __init__(
-        self, path: str, key: str, transform: Union[None, Iterable, "Compose"] = None, normalize=True
+        self, path: str, key: str, transform: Union[None, Iterable, "Compose"] = None
     ):
         """
         Instantiate the H5Dataset object, with the necessary arguments `path` and `key`
@@ -34,10 +36,13 @@ class H5Dataset(data.Dataset):
         self.key = key
         self.dataset = None
         self.normalize = normalize
-        if type(transform) == list or type(transform) == tuple:
-            self.transform = Compose(transform)
+        if not transform:
+            self.transform = central_pipeline
         else:
-            self.transform = transform
+            if type(transform) == list or type(transform) == tuple:
+                self.transform = Compose(transform)
+            else:
+                self.transform = transform
         with h5py.File(self.file_path, "r") as file:
             self.dataset_len = len(file[self.key])
 
@@ -48,8 +53,7 @@ class H5Dataset(data.Dataset):
         # if we have a transform pipeline, run it
         if self.transform:
             return self.transform(X)
-        if self.normalize:
-            np.divide(X, X.max(), out=X)
+        X = np.divide(X, X.max(), out=X)
         return X
 
     def __len__(self):
@@ -62,6 +66,7 @@ class CompositeH5Dataset(H5Dataset):
         path: str,
         key: str,
         transform: Union[None, Iterable, "Compose"] = None,
+        target_transform: Union[None, Iterable, "Compose"] = None,
         scale: float = 2.0,
         seed=None,
         normalize=True,
@@ -102,6 +107,10 @@ class CompositeH5Dataset(H5Dataset):
             self.indices = np.arange(len(self))
         else:
             self.indices = indices
+        if not target_transform:
+            self.target_transform = projection_pipeline
+        else:
+            self.target_transform = target_transform
 
     def __len__(self):
         if self.indices is None:
@@ -143,14 +152,13 @@ class CompositeH5Dataset(H5Dataset):
             X = X.sum(axis=0)
         # if we have a compose pipeline defined, run it
         if self.transform:
-            target = self.transform(X)
-        else:
-            target = X
-        if self.normalize:
-            np.divide(X, X.max(), out=X)
-        # otherwise, just make a channel dimension
-        X = torch.FloatTensor(X).unsqueeze(0)
-        return (target, X)
+            X = self.transform(X)
+        # Y is the central slice, whereas X is the projection
+        Y = self.target_transform(X)
+        # Normalize the image intensity to [0, 1]
+        X = X / X.max()
+        Y = Y / Y.max()
+        return (Y, X)
 
 
 class SelectiveComposite(H5Dataset):

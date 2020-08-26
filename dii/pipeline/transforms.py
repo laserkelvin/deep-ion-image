@@ -1,6 +1,8 @@
 import abel
 import numpy as np
+from torch import nn
 from torchvision import transforms as tf
+from PIL import Image, ImageFilter
 
 
 class AbelProjection(object):
@@ -38,15 +40,40 @@ class ProcessNumpyArray(object):
             X = X.astype(np.uint8)
         return X[:, :, np.newaxis]
 
+
+class ToNumpy(object):
+    def __call__(self, X: Image) -> np.ndarray:
+        return np.array(X, dtype=np.float32)
+
+
+class BlurPIL(object):
+    def __init__(self, max_blur=10.0):
+        self.max_blur = max_blur
+
+    def __call__(self, X: Image) -> Image:
+        scale = np.random.uniform(1.0, self.max_blur)
+        return X.filter(ImageFilter.GaussianBlur(scale))
+
+
 # this is a pipeline that has been tested and is known to provide the "right" kind
 # of behaviour AFAIK
-default_pipeline = tf.Compose(
+central_pipeline = tf.Compose(
     [
-        AbelProjection(),
         ProcessNumpyArray(),
         tf.ToPILImage(),
-        # this performs random translation and scaling to the image.
-        tf.RandomAffine(0.0, translate=(0.05, 0.05), scale=(0.3, 1.0)),
+        tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
+        BlurPIL(),
+        ToNumpy(),
+    ]
+)
+
+projection_pipeline = tf.Compose(
+    [
+        AbelProjection(),  # Perform Abel transform to get 3D distribution
+        tf.ToPILImage(),
+        BlurPIL(),         # Gaussian blur to remove Abel projection artifacts
+        tf.RandomAffine(0.0, translate=(0.05, 0.05), resample=Image.BICUBIC),    # we move the 3D image around
         tf.ToTensor(),
+        nn.Dropout(0.2),   # This adds some noise to the 3D image
     ]
 )
