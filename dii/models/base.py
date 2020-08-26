@@ -11,7 +11,7 @@ def initialize_weights(m):
     for name, parameter in m.named_parameters():
         if "norm" not in name:
             try:
-                nn.init.kaiming_uniform_(parameter, nonlinearity="relu")
+                nn.init.kaiming_uniform_(parameter, nonlinearity="leaky_relu")
             except:
                 pass
 

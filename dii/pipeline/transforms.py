@@ -36,7 +36,7 @@ class ProcessNumpyArray(object):
     def __call__(self, X: np.ndarray):
         if X.dtype != np.uint8:
             X = X.astype(np.float32)
-            np.divide(X, X.max(), out=X)
+            X = X / X.max()
             X *= 255.
             X = X.astype(np.uint8)
         return X[:,:,np.newaxis]
