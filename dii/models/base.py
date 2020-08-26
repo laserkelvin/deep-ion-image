@@ -88,14 +88,14 @@ class AutoEncoder(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X)
-        loss = F.mse_loss(pred_Y, Y)
+        loss = F.binary_cross_entropy(pred_Y, Y)
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X)
-        loss = F.mse_loss(pred_Y, Y)
+        loss = F.binary_cross_entropy(pred_Y, Y)
         tensorboard_logs = {"validation_loss": loss}
         return {"validation_loss": loss, "log": tensorboard_logs}
 
@@ -166,7 +166,7 @@ class VAE(AutoEncoder):
         log_var: torch.Tensor,
     ) -> dict:
         batch_size = Y.size(0)
-        recon_loss = F.mse_loss(pred_Y, Y)
+        recon_loss = F.binary_cross_entropy(pred_Y, Y)
         kld_loss = torch.mean(
             -0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0
         )
