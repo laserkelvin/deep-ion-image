@@ -8,14 +8,14 @@ from dii.models import layers
 
 
 class BaseEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout=0.):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.ConvolutionBlock(1, 8, 11, pool=nn.MaxPool2d(4)),
-            layers.ConvolutionBlock(8, 16, 7),
-            layers.ConvolutionBlock(16, 32, 5, pool=nn.MaxPool2d(4)),
-            layers.ConvolutionBlock(32, 64, 3),
-            layers.ConvolutionBlock(64, 128, 3, pool=nn.MaxPool2d(4)),
+            layers.ConvolutionBlock(1, 8, 11, pool=nn.MaxPool2d(4), dropout=dropout),
+            layers.ConvolutionBlock(8, 16, 7, dropout=dropout),
+            layers.ConvolutionBlock(16, 32, 5, pool=nn.MaxPool2d(4), dropout=dropout),
+            layers.ConvolutionBlock(32, 64, 3, dropout=dropout),
+            layers.ConvolutionBlock(64, 128, 3, pool=nn.MaxPool2d(4), dropout=dropout),
             layers.ConvolutionBlock(128, 256, 1, activation=None),
         )
 
@@ -25,15 +25,15 @@ class BaseEncoder(nn.Module):
 
 
 class BaseDecoder(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout=dropout):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.DecoderBlock(256, 128, 5, upsample_size=8),
-            layers.DecoderBlock(128, 64, 7, upsample_size=8),
-            layers.DecoderBlock(64, 32, 5, upsample_size=6),
-            layers.DecoderBlock(32, 16, 3, upsample_size=2),
-            layers.DecoderBlock(16, 8, 3, upsample_size=2),
-            layers.DecoderBlock(8, 1, 3, upsample_size=2),
+            layers.DecoderBlock(256, 128, 5, upsample_size=8, dropout=dropout),
+            layers.DecoderBlock(128, 64, 7, upsample_size=8, dropout=dropout),
+            layers.DecoderBlock(64, 32, 5, upsample_size=6, dropout=dropout),
+            layers.DecoderBlock(32, 16, 3, upsample_size=2, dropout=dropout),
+            layers.DecoderBlock(16, 8, 3, upsample_size=2, dropout=dropout),
+            layers.DecoderBlock(8, 1, 3, upsample_size=2, dropout=dropout),
             layers.DecoderBlock(1, 1, 3, activation=nn.Sigmoid(), upsample_size=1),
         )
 
@@ -43,23 +43,23 @@ class BaseDecoder(nn.Module):
 
 
 class TransposeDecoder(nn.Module):
-    def __init__(self):
+    def __init__(self, dropout=dropout):
         super().__init__()
         self.model = nn.Sequential(
             layers.TransposeDecoderBlock(
-                256, 128, 5, stride=4, padding=1, output_padding=3
+                256, 128, 5, stride=4, padding=1, output_padding=3, dropout=dropout
             ),
             layers.TransposeDecoderBlock(
-                128, 64, 2, stride=4, padding=1, output_padding=2
+                128, 64, 2, stride=4, padding=1, output_padding=2, dropout=dropout
             ),
             layers.TransposeDecoderBlock(
-                64, 32, 4, stride=3, padding=1, output_padding=2
+                64, 32, 4, stride=3, padding=1, output_padding=2, dropout=dropout
             ),
             layers.TransposeDecoderBlock(
-                32, 16, 3, stride=3, padding=1, output_padding=1
+                32, 16, 3, stride=3, padding=1, output_padding=1, dropout=dropout
             ),
             layers.TransposeDecoderBlock(
-                16, 8, 2, stride=3, padding=0, output_padding=1
+                16, 8, 2, stride=3, padding=0, output_padding=1, dropout=dropout
             ),
             layers.TransposeDecoderBlock(
                 8, 1, 2, stride=2, padding=0, batch_norm=False, activation=nn.Sigmoid()
