@@ -35,11 +35,11 @@ class ProcessNumpyArray(object):
 
     def __call__(self, X: np.ndarray):
         if X.dtype != np.uint8:
-            X_max = X.max()
-            X /= X_max
-            X *= 255
+            X = X.astype(np.float32)
+            np.divide(X, X.max(), out=X)
+            X *= 255.
             X = X.astype(np.uint8)
-        return X[:, :, np.newaxis]
+        return X[:,:,np.newaxis]
 
 
 class ToNumpy(object):
@@ -82,7 +82,6 @@ projection_pipeline = tf.Compose(
         AbelProjection(),  # Perform Abel transform to get 3D distribution
         BlurImage(),
         tf.ToPILImage(),
-        BlurPIL(),         # Gaussian blur to remove Abel projection artifacts
         tf.RandomAffine(0.0, translate=(0.05, 0.05), resample=Image.BICUBIC),    # we move the 3D image around
         tf.ToTensor(),
         nn.Dropout(0.2),   # This adds some noise to the 3D image
