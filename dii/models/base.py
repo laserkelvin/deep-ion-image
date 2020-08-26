@@ -25,7 +25,7 @@ class BaseEncoder(nn.Module):
 
 
 class BaseDecoder(nn.Module):
-    def __init__(self, dropout=dropout):
+    def __init__(self, dropout=0.):
         super().__init__()
         self.layers = nn.Sequential(
             layers.DecoderBlock(256, 128, 5, upsample_size=8, dropout=dropout),
@@ -43,7 +43,7 @@ class BaseDecoder(nn.Module):
 
 
 class TransposeDecoder(nn.Module):
-    def __init__(self, dropout=dropout):
+    def __init__(self, dropout=0.):
         super().__init__()
         self.model = nn.Sequential(
             layers.TransposeDecoderBlock(
@@ -87,14 +87,14 @@ class AutoEncoder(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         X, Y = batch
-        pred_Y = self.forward(X)
+        pred_Y = self.forward(X).squeeze()
         loss = F.binary_cross_entropy(pred_Y, Y)
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
-        pred_Y = self.forward(X)
+        pred_Y = self.forward(X).squeeze()
         loss = F.binary_cross_entropy(pred_Y, Y)
         tensorboard_logs = {"validation_loss": loss}
         return {"validation_loss": loss, "log": tensorboard_logs}

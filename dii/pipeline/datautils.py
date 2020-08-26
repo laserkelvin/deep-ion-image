@@ -35,7 +35,6 @@ class H5Dataset(data.Dataset):
         self.file_path = path
         self.key = key
         self.dataset = None
-        self.normalize = normalize
         if not transform:
             self.transform = central_pipeline
         else:
@@ -69,7 +68,6 @@ class CompositeH5Dataset(H5Dataset):
         target_transform: Union[None, Iterable, "Compose"] = None,
         scale: float = 2.0,
         seed=None,
-        normalize=True,
         indices=None
     ):
         """
@@ -97,7 +95,7 @@ class CompositeH5Dataset(H5Dataset):
         seed : [type], optional
             Random seed to use for the image generation, by default None
         """
-        super().__init__(path, key, transform, normalize)
+        super().__init__(path, key, transform)
         self.seed = seed
         self.scale = scale
         self.indices = None
