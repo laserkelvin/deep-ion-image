@@ -145,20 +145,21 @@ class CompositeH5Dataset(H5Dataset):
         chosen = np.random.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
             chosen = sorted(chosen)
-        X = self.dataset[chosen].astype(np.float32)
+        Y = self.dataset[chosen].astype(np.float32)
         # if we have multiple images, flatten to a single composite
         # so that the dimensions are H x W expected by PyAbel
-        if X.ndim == 3:
-            X = X.sum(axis=0)
+        if Y.ndim == 3:
+            Y = Y.sum(axis=0)
         # if we have a compose pipeline defined, run it
         if self.transform:
-            X = self.transform(X)
-        # Y is the central slice, whereas X is the projection
-        Y = self.target_transform(X)
+            Y = self.transform(Y)
+        # Y is the central slice, whereas X is the projection, which is 
+        # appropriate for the direction we're going
+        X = self.target_transform(Y)
         # Normalize the image intensity to [0, 1]
         X = X / X.max()
         Y = Y / Y.max()
-        return (Y, X)
+        return (X, Y)
 
 
 class SelectiveComposite(H5Dataset):
