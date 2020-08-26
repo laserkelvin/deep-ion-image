@@ -7,6 +7,15 @@ from torch.nn import functional as F
 from dii.models import layers
 
 
+def initialize_weights(m):
+    for name, parameter in m.named_parameters():
+        if "norm" not in name:
+            try:
+                nn.init.kaiming_uniform_(parameter, nonlinearity="relu")
+            except:
+                pass
+
+
 class BaseEncoder(nn.Module):
     def __init__(self, dropout=0.):
         super().__init__()
@@ -76,6 +85,7 @@ class AutoEncoder(pl.LightningModule):
         self.encoder = encoder
         self.decoder = decoder
         self.lr = lr
+        self.apply(initialize_weights)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -149,7 +159,7 @@ class VAE(AutoEncoder):
         # Split the result into mu and var components
         # of the latent Gaussian distribution
         mu = self.fc_mu(output)
-        log_var = self.fc_logvar(output)
+        log_var = -F.relu(self.fc_logvar(output))
 
         return [mu, log_var]
 
