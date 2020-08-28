@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from dii.models import layers
-from dii.models.unet import UNet
+from dii.models.unet import UNet, SkimUNet
 
 
 def initialize_weights(m):
@@ -117,9 +117,12 @@ class AutoEncoder(pl.LightningModule):
 
 
 class UNetAutoEncoder(AutoEncoder):
-    def __init__(self, lr=1e-3):
+    def __init__(self, lr=1e-3, skim=True):
         super().__init__(encoder=None, decoder=None, lr=lr)
-        self.model = UNet(1, 1)
+        if skim:
+            self.model = SkimUNet(1, 1)
+        else:
+            self.model = UNet(1, 1)
         self.apply(initialize_weights)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:

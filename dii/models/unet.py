@@ -38,6 +38,26 @@ class UNet(nn.Module):
         return output
 
 
+class SkimUNet(UNet):
+    def __init__(self, n_channels, n_classes, bilinear=True, final_act=nn.Sigmoid()):
+        super().__init__(n_channels, n_classes, bilinear, final_act)
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.bilinear = bilinear
+
+        self.inc = DoubleConv(n_channels, 16)
+        self.down1 = UnetEncoder(16, 32)
+        self.down2 = UnetEncoder(32, 64)
+        self.down3 = UnetEncoder(64, 128)
+        factor = 2 if bilinear else 1
+        self.down4 = UnetEncoder(128, 256 // factor)
+        self.up1 = UnetDecoder(256, 128 // factor, bilinear)
+        self.up2 = UnetDecoder(128, 64 // factor, bilinear)
+        self.up3 = UnetDecoder(64, 32 // factor, bilinear)
+        self.up4 = UnetDecoder(32, 16, bilinear)
+        self.outc = OutputLayer(16, n_classes, final_act)
+
+
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
