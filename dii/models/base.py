@@ -4,7 +4,9 @@ import torch
 import pytorch_lightning as pl
 from torch import nn
 from torch.nn import functional as F
+
 from dii.models import layers
+from dii.models.unet import UNet
 
 
 def initialize_weights(m):
@@ -20,12 +22,12 @@ class BaseEncoder(nn.Module):
     def __init__(self, dropout=0.):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.ConvolutionBlock(1, 8, 11, pool=nn.MaxPool2d(4), dropout=dropout),
-            layers.ConvolutionBlock(8, 16, 7, dropout=dropout),
-            layers.ConvolutionBlock(16, 32, 5, pool=nn.MaxPool2d(4), dropout=dropout),
+            layers.ConvolutionBlock(1, 8, 5, pool=nn.MaxPool2d(4), dropout=dropout, dilation=2),
+            layers.ConvolutionBlock(8, 16, 5, dropout=dropout),
+            layers.ConvolutionBlock(16, 32, 5, pool=nn.MaxPool2d(2), dropout=dropout),
             layers.ConvolutionBlock(32, 64, 3, dropout=dropout),
             layers.ConvolutionBlock(64, 128, 3, pool=nn.MaxPool2d(4), dropout=dropout),
-            layers.ConvolutionBlock(128, 256, 1, activation=None),
+            layers.ConvolutionBlock(128, 256, 1),
         )
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -37,13 +39,12 @@ class BaseDecoder(nn.Module):
     def __init__(self, dropout=0.):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.DecoderBlock(256, 128, 5, upsample_size=8, dropout=dropout),
-            layers.DecoderBlock(128, 64, 7, upsample_size=8, dropout=dropout),
-            layers.DecoderBlock(64, 32, 5, upsample_size=6, dropout=dropout),
+            layers.DecoderBlock(256, 128, 3, upsample_size=4, dropout=dropout, bias=False, padding=2),
+            layers.DecoderBlock(128, 64, 3, upsample_size=4, dropout=dropout, bias=False),
+            layers.DecoderBlock(64, 32, 3, upsample_size=4, dropout=dropout, bias=False, padding=2),
             layers.DecoderBlock(32, 16, 3, upsample_size=2, dropout=dropout),
-            layers.DecoderBlock(16, 8, 3, upsample_size=2, dropout=dropout),
-            layers.DecoderBlock(8, 1, 3, upsample_size=2, dropout=dropout),
-            layers.DecoderBlock(1, 1, 3, activation=nn.Sigmoid(), upsample_size=1),
+            layers.DecoderBlock(16, 8, 4, upsample_size=2, dropout=dropout, padding=2),
+            layers.DecoderBlock(8, 1, 4, activation=nn.Sigmoid(), upsample_size=1),
         )
 
     def forward(self, X: torch.Tensor):
@@ -113,6 +114,17 @@ class AutoEncoder(pl.LightningModule):
         avg_loss = torch.stack([x['validation_loss'] for x in outputs]).mean()
         tensorboard_logs = {'validation_loss': avg_loss}
         return {'avg_val_loss': avg_loss, 'log': tensorboard_logs}
+
+
+class UNetAutoEncoder(AutoEncoder):
+    def __init__(self, lr=1e-3):
+        super().__init__(encoder=None, decoder=None, lr=lr)
+        self.model = UNet(1, 1)
+        self.apply(initialize_weights)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        assert X.ndim == 4
+        return self.model(X)
 
 
 class VAE(AutoEncoder):

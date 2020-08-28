@@ -1,11 +1,19 @@
-
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 
 class ConvolutionBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, conv_kernel, dropout=0., activation=nn.LeakyReLU(0.3), pool=nn.MaxPool2d(2), **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        conv_kernel,
+        dropout=0.0,
+        activation=nn.LeakyReLU(0.3, inplace=True),
+        pool=nn.MaxPool2d(2),
+        **kwargs
+    ):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, conv_kernel, **kwargs)
         self.activation = activation
@@ -22,7 +30,17 @@ class ConvolutionBlock(nn.Module):
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, conv_kernel, dropout=0., activation=nn.LeakyReLU(0.3), upsample_size=10, batch_norm=True, **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        conv_kernel,
+        dropout=0.0,
+        activation=nn.LeakyReLU(0.3, inplace=True),
+        upsample_size=10,
+        batch_norm=True,
+        **kwargs
+    ):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, conv_kernel, **kwargs)
         self.activation = activation
@@ -34,7 +52,9 @@ class DecoderBlock(nn.Module):
         self.upsample_size = upsample_size
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        output = F.interpolate(X, scale_factor=self.upsample_size, mode="bilinear", align_corners=True)
+        output = F.interpolate(
+            X, scale_factor=self.upsample_size, mode="bilinear", align_corners=True
+        )
         output = self.conv(output)
         if self.norm is not None:
             output = self.norm(output)
@@ -45,7 +65,16 @@ class DecoderBlock(nn.Module):
 
 
 class TransposeDecoderBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, conv_kernel, dropout=0., activation=nn.LeakyReLU(0.3), batch_norm=True, **kwargs):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        conv_kernel,
+        dropout=0.0,
+        activation=nn.LeakyReLU(0.3, inplace=True),
+        batch_norm=True,
+        **kwargs
+    ):
         super().__init__()
         self.conv = nn.ConvTranspose2d(in_channels, out_channels, conv_kernel, **kwargs)
         self.activation = activation
