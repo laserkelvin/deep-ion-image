@@ -11,7 +11,7 @@ from dii.utils import checkpoint_callback
 
 
 N_WORKERS = 8
-BATCH_SIZE = 24
+BATCH_SIZE = 16
 
 if torch.cuda.is_available():
     GPU = 1
@@ -19,7 +19,7 @@ else:
     GPU = 0
 
 
-autoencoder = AutoEncoder(BaseEncoder(), TransposeDecoder())
+autoencoder = AutoEncoder(BaseEncoder(0.2), TransposeDecoder(0.2))
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
@@ -40,6 +40,6 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORK
 logger = pl.loggers.WandbLogger(name="baseline-trans", project="deep-ion-image")
 logger.watch(autoencoder, log="all")
 
-trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=4)
+trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=4, resume_from_checkpoint="deep-ion-image/3mwbij41/checkpoints/epoch=2.ckpt")
 
 trainer.fit(autoencoder, train_loader, test_loader)
