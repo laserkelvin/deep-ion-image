@@ -150,7 +150,7 @@ class CompositeH5Dataset(H5Dataset):
         chosen = np.random.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
             chosen = sorted(chosen)
-        Y = self.dataset[chosen].astype(np.float32)
+        Y = np.array(self.dataset[chosen], dtype=np.float32)
         # if we have multiple images, flatten to a single composite
         # so that the dimensions are H x W expected by PyAbel
         if Y.ndim == 3:
@@ -162,8 +162,8 @@ class CompositeH5Dataset(H5Dataset):
         # appropriate for the direction we're going
         X = self.target_transform(Y)
         # Normalize the image intensity to [0, 1]
-        X = X / X.max()
-        Y = Y / Y.max()
+        X = X / (X.max() + 1e-9)
+        Y = Y / (Y.max() + 1e-9)
         return (X, Y)
 
 
