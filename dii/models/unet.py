@@ -33,7 +33,7 @@ class UNet(nn.Module):
         x = self.up1(x5, x4)
         x = self.up2(x, x3)
         x = self.up3(x, x2)
-        x = self.up4(x, x1)
+        x = F.relu(self.up4(x, x1))
         output = self.outc(x)
         return output
 
