@@ -23,7 +23,7 @@ else:
     GPU = 0
 
 
-model = UNetAutoEncoder()
+model = UNetAutoEncoder(lr=1e-4)
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
@@ -40,7 +40,7 @@ test_dataset = CompositeH5Dataset(
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
 
-logger = pl.loggers.WandbLogger(name="unet", project="deep-ion-image")
+logger = pl.loggers.WandbLogger(name="unet-skim", project="deep-ion-image")
 logger.watch(model, log="all")
 
 trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8)
