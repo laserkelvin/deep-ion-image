@@ -71,7 +71,7 @@ central_pipeline = tf.Compose(
     [
         ProcessNumpyArray(),
         tf.ToPILImage(),
-        tf.Resize((600,600)),
+        tf.Resize((1024,1024)),
         tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
         BlurPIL(),
         ToNumpy(),
