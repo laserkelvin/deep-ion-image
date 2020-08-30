@@ -41,13 +41,13 @@ class BaseDecoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.DecoderBlock(72, 64, 3),
-            layers.DecoderBlock(64, 48, 3),
-            layers.DecoderBlock(48, 32, 3),
-            layers.DecoderBlock(32, 16, 3),
-            layers.DecoderBlock(16, 8, 3),
-            layers.DecoderBlock(8, 4, 3),
-            layers.DecoderBlock(4, 1, 3, activation=nn.Sigmoid(), upsample_size=1),
+            layers.DecoderBlock(72, 64, 3, padding=1),
+            layers.DecoderBlock(64, 48, 3, padding=1),
+            layers.DecoderBlock(48, 32, 3, padding=1),
+            layers.DecoderBlock(32, 16, 3, padding=1),
+            layers.DecoderBlock(16, 8, 3, padding=1),
+            layers.DecoderBlock(8, 4, 3, padding=1),
+            layers.DecoderBlock(4, 1, 3, activation=nn.Sigmoid(), upsample_size=2, padding=1),
         )
 
     def forward(self, X: torch.Tensor):
@@ -191,13 +191,12 @@ class VAE(AutoEncoder):
         return [mu, log_var]
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
-        output = self.decoder_input(z)
-        # reshape the decoder input back into image dimensions
-        output = self.decoder(
-            output.view(
-                -1, self.encoding_filters, self.encoding_imgsize, self.encoding_imgsize
-            )
+        batch_size = z.size(0)
+        output = self.decoder_input(z).view(
+            batch_size, self.encoding_filters, self.encoding_imgsize, self.encoding_imgsize
         )
+        # reshape the decoder input back into image dimensions
+        output = self.decoder(output)
         return output
 
     def loss_function(
