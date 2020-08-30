@@ -19,15 +19,17 @@ def initialize_weights(m):
 
 
 class BaseEncoder(nn.Module):
-    def __init__(self, dropout=0.):
+    def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.ConvolutionBlock(1, 8, 5, pool=nn.MaxPool2d(4), dropout=dropout, dilation=2),
-            layers.ConvolutionBlock(8, 16, 5, dropout=dropout),
-            layers.ConvolutionBlock(16, 32, 5, pool=nn.MaxPool2d(2), dropout=dropout),
-            layers.ConvolutionBlock(32, 64, 3, dropout=dropout),
-            layers.ConvolutionBlock(64, 128, 3, pool=nn.MaxPool2d(4), dropout=dropout),
-            layers.ConvolutionBlock(128, 256, 1),
+            layers.ConvolutionBlock(1, 4, 3, padding=1),
+            layers.ConvolutionBlock(4, 8, 3, padding=1),
+            layers.ConvolutionBlock(8, 16, 3, padding=1),
+            layers.ConvolutionBlock(16, 32, 3, padding=1),
+            layers.ConvolutionBlock(32, 48, 3, padding=1),
+            layers.ConvolutionBlock(48, 64, 3, padding=1),
+            layers.ConvolutionBlock(64, 72, 3, padding=1),
+            nn.Flatten(),
         )
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -36,15 +38,16 @@ class BaseEncoder(nn.Module):
 
 
 class BaseDecoder(nn.Module):
-    def __init__(self, dropout=0.):
+    def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.DecoderBlock(256, 128, 3, upsample_size=4, dropout=dropout, bias=False, padding=2),
-            layers.DecoderBlock(128, 64, 3, upsample_size=4, dropout=dropout, bias=False),
-            layers.DecoderBlock(64, 32, 3, upsample_size=4, dropout=dropout, bias=False, padding=2),
-            layers.DecoderBlock(32, 16, 3, upsample_size=2, dropout=dropout),
-            layers.DecoderBlock(16, 8, 4, upsample_size=2, dropout=dropout, padding=2),
-            layers.DecoderBlock(8, 1, 4, activation=nn.Sigmoid(), upsample_size=1),
+            layers.DecoderBlock(72, 64, 3),
+            layers.DecoderBlock(64, 48, 3),
+            layers.DecoderBlock(48, 32, 3),
+            layers.DecoderBlock(32, 16, 3),
+            layers.DecoderBlock(16, 8, 3),
+            layers.DecoderBlock(8, 4, 3),
+            layers.DecoderBlock(4, 1, 3, activation=nn.Sigmoid(), upsample_size=1),
         )
 
     def forward(self, X: torch.Tensor):
@@ -53,7 +56,7 @@ class BaseDecoder(nn.Module):
 
 
 class TransposeDecoder(nn.Module):
-    def __init__(self, dropout=0.):
+    def __init__(self, dropout=0.0):
         super().__init__()
         self.model = nn.Sequential(
             layers.TransposeDecoderBlock(
@@ -90,7 +93,7 @@ class AutoEncoder(pl.LightningModule):
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
-        return self.decoder(z)
+        return self.decoder(z).squeeze()
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), self.lr)
@@ -98,22 +101,22 @@ class AutoEncoder(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         X, Y = batch
-        pred_Y = self.forward(X).squeeze()
+        pred_Y = self.forward(X)
         loss = F.binary_cross_entropy(pred_Y, Y)
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
-        pred_Y = self.forward(X).squeeze()
+        pred_Y = self.forward(X)
         loss = F.binary_cross_entropy(pred_Y, Y)
         tensorboard_logs = {"validation_loss": loss}
         return {"validation_loss": loss, "log": tensorboard_logs}
 
     def validation_epoch_end(self, outputs: List[dict]) -> dict:
-        avg_loss = torch.stack([x['validation_loss'] for x in outputs]).mean()
-        tensorboard_logs = {'validation_loss': avg_loss}
-        return {'avg_val_loss': avg_loss, 'log': tensorboard_logs}
+        avg_loss = torch.stack([x["validation_loss"] for x in outputs]).mean()
+        tensorboard_logs = {"validation_loss": avg_loss}
+        return {"avg_val_loss": avg_loss, "log": tensorboard_logs}
 
 
 class UNetAutoEncoder(AutoEncoder):
@@ -132,15 +135,24 @@ class UNetAutoEncoder(AutoEncoder):
 
 class VAE(AutoEncoder):
     def __init__(
-        self, encoder, decoder, beta=4, encoding_dim=256, latent_dim=256, lr=0.001
+        self,
+        encoder,
+        decoder,
+        beta=4,
+        encoding_imgsize=8,
+        encoding_filters=72,
+        latent_dim=64,
+        lr=0.001,
     ):
         super().__init__(encoder, decoder, lr=lr)
-        self.fc_mu = nn.Linear(encoding_dim, latent_dim)
-        self.fc_logvar = nn.Linear(encoding_dim, latent_dim)
-        self.decoder_input = nn.Linear(latent_dim, encoding_dim)
+        self.encoding_imgsize = encoding_imgsize
+        self.encoding_dim = encoding_imgsize ** 2 * encoding_filters
+        self.fc_mu = nn.Linear(self.encoding_dim, latent_dim)
+        self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim)
+        self.decoder_input = nn.Linear(latent_dim, self.encoding_dim)
         self.beta = beta
-        self.encoding_dim = encoding_dim
         self.latent_dim = latent_dim
+        self.encoding_filters = encoding_filters
 
     def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
         """
@@ -168,9 +180,9 @@ class VAE(AutoEncoder):
         List[Tensor]
             [description]
         """
+        # this generates shape (N x 4608) from flattening
+        # the filter x H x W
         output = self.encoder(X)
-        output = torch.flatten(output, start_dim=1)
-
         # Split the result into mu and var components
         # of the latent Gaussian distribution
         mu = self.fc_mu(output)
@@ -180,7 +192,12 @@ class VAE(AutoEncoder):
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         output = self.decoder_input(z)
-        output = self.decoder(output.view(-1, self.latent_dim, 1, 1))
+        # reshape the decoder input back into image dimensions
+        output = self.decoder(
+            output.view(
+                -1, self.encoding_filters, self.encoding_imgsize, self.encoding_imgsize
+            )
+        )
         return output
 
     def loss_function(
@@ -202,7 +219,7 @@ class VAE(AutoEncoder):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         mu, log_var = self.encode(X)
         z = self.reparameterize(mu, log_var)
-        output = self.decode(z)
+        output = self.decode(z).squeeze()
         return output
 
     def training_step(self, batch, batch_idx) -> dict:

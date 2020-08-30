@@ -37,7 +37,7 @@ class DecoderBlock(nn.Module):
         conv_kernel,
         dropout=0.0,
         activation=nn.LeakyReLU(0.3, inplace=True),
-        upsample_size=10,
+        upsample_size=2,
         batch_norm=True,
         **kwargs
     ):

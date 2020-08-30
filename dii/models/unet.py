@@ -41,9 +41,6 @@ class UNet(nn.Module):
 class SkimUNet(UNet):
     def __init__(self, n_channels, n_classes, bilinear=True, final_act=nn.Sigmoid()):
         super().__init__(n_channels, n_classes, bilinear, final_act)
-        self.n_channels = n_channels
-        self.n_classes = n_classes
-        self.bilinear = bilinear
 
         self.inc = DoubleConv(n_channels, 16)
         self.down1 = UnetEncoder(16, 32)
