@@ -187,7 +187,7 @@ class VAE(AutoEncoder):
         # Split the result into mu and var components
         # of the latent Gaussian distribution
         mu = self.fc_mu(output)
-        log_var = -F.relu(self.fc_logvar(output))
+        log_var = -F.leaky_relu(self.fc_logvar(output), 0.5)
 
         return [mu, log_var]
 
