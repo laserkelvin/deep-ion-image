@@ -227,7 +227,18 @@ class VAE(AutoEncoder):
         z = self.reparameterize(mu, log_var)
         pred_Y = self.decode(z)
         loss_dict = self.loss_function(pred_Y, Y.squeeze(), mu, log_var)
-        logs = {}.update(**loss_dict)
-        loss_dict["logs"] = logs
-        return loss_dict
+        return {"loss": loss_dict["loss"], "log": loss_dict}
+
+    def validation_step(self, batch, batch_idx):
+        X, Y = batch
+        mu, log_var = self.encode(X)
+        z = self.reparameterize(mu, log_var)
+        pred_Y = self.decode(z)
+        loss_dict = self.loss_function(pred_Y, Y.squeeze(), mu, log_var)
+        return {"validation_loss": loss_dict["loss"], "log": loss_dict}
+
+    def validation_epoch_end(self, outputs: List[dict]) -> dict:
+        avg_loss = torch.stack([x["validation_loss"] for x in outputs]).mean()
+        tensorboard_logs = {"validation_loss": avg_loss}
+        return {"avg_val_loss": avg_loss, "log": tensorboard_logs}
 

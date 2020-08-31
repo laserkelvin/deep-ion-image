@@ -6,16 +6,16 @@ import wandb
 from torch.utils.data import DataLoader
 
 from dii.pipeline.datautils import CompositeH5Dataset
-from dii.models.base import VAE, BaseEncoder, TransposeDecoder
+from dii.models.base import VAE, BaseEncoder, BaseDecoder
 from dii.utils import checkpoint_callback
 
 
 N_WORKERS = 8
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 TRAIN_SEED = np.random.seed(42)
 TEST_SEED = np.random.seed(1923)
 
-DROPOUT = 0.2
+DROPOUT = 0.0
 
 if torch.cuda.is_available():
     GPU = 1
@@ -23,27 +23,26 @@ else:
     GPU = 0
 
 
-vae = VAE(BaseEncoder(dropout=DROPOUT), TransposeDecoder(dropout=DROPOUT), beta=4.)
+vae = VAE(BaseEncoder(dropout=DROPOUT), BaseDecoder(dropout=DROPOUT), beta=4., lr=1e-4)
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
     test_indices = np.array(h5_file["test"])
-    dev_indices = np.array(h5_file["dev"])
 
 # Load up the datasets; random seed is set for the training set
 train_dataset = CompositeH5Dataset(
     "../data/raw/ion_images.h5", "true", indices=train_indices, seed=TRAIN_SEED
 )
-#test_dataset = CompositeH5Dataset(
-#    "../data/raw/ion_images.h5", "true", indices=test_indices, seed=TEST_SEED
-#)
+test_dataset = CompositeH5Dataset(
+    "../data/raw/ion_images.h5", "true", indices=test_indices, seed=TEST_SEED
+)
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
-#test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
 
 logger = pl.loggers.WandbLogger(name="beta-vae", project="deep-ion-image")
 logger.watch(vae, log="all")
 
-trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=4)
+trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8, resume_from_checkpoint="deep-ion-image/3kv2vu9r/checkpoints/epoch=9.ckpt")
 
-trainer.fit(vae, train_loader)
+trainer.fit(vae, train_loader, test_loader)

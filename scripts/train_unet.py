@@ -11,7 +11,7 @@ from dii.utils import checkpoint_callback
 
 
 N_WORKERS = 8
-BATCH_SIZE = 16
+BATCH_SIZE = 8
 TRAIN_SEED = np.random.seed(42)
 TEST_SEED = np.random.seed(1923)
 
@@ -43,6 +43,6 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORK
 logger = pl.loggers.WandbLogger(name="unet-skim", project="deep-ion-image")
 logger.watch(model, log="all")
 
-trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8)
+trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8, resume_from_checkpoint="deep-ion-image/yirli8lf/checkpoints/epoch=9.ckpt")
 
 trainer.fit(model, train_loader, test_loader)

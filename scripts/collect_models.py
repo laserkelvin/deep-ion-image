@@ -16,12 +16,12 @@ from dii.models import base
 #model.load_state_dict(chk["state_dict"])
 #torch.save(model.state_dict(), "../models/transconv_baseline.pt")
 #
-#model = VAE(BaseEncoder(), TransposeDecoder())
-#chk = torch.load("deep-ion-image/2wgnmlwu/checkpoints/epoch=9.ckpt", map_location="cpu")
-#model.load_state_dict(chk["state_dict"])
-#torch.save(model.state_dict(), "../models/betavae.pt")
+model = base.VAE(base.BaseEncoder(), base.BaseDecoder())
+chk = torch.load("deep-ion-image/3kv2vu9r/checkpoints/epoch=9.ckpt", map_location="cpu")
+model.load_state_dict(chk["state_dict"])
+torch.save(model.state_dict(), "../models/betavae.pt")
 
 model = base.UNetAutoEncoder()
-chk = torch.load("deep-ion-image/ne6bq38e/checkpoints/epoch=10.ckpt", map_location="cpu")
+chk = torch.load("deep-ion-image/yirli8lf/checkpoints/epoch=9.ckpt", map_location="cpu")
 model.load_state_dict(chk["state_dict"])
 torch.save(model.state_dict(), "../models/unet-skim.pt")
