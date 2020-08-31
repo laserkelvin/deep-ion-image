@@ -153,6 +153,7 @@ class VAE(AutoEncoder):
         self.beta = beta
         self.latent_dim = latent_dim
         self.encoding_filters = encoding_filters
+        self.apply(initialize_weights)
 
     def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
         """
