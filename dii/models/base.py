@@ -148,7 +148,7 @@ class VAE(AutoEncoder):
         self.encoding_imgsize = encoding_imgsize
         self.encoding_dim = encoding_imgsize ** 2 * encoding_filters
         self.fc_mu = nn.Linear(self.encoding_dim, latent_dim)
-        self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim),
+        self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim)
         self.decoder_input = nn.Sequential(
             nn.Linear(latent_dim, self.encoding_dim),
             nn.LeakyReLU(0.3, inplace=True)
