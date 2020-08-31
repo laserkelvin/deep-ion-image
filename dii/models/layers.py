@@ -17,7 +17,7 @@ class ConvolutionBlock(nn.Module):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, conv_kernel, **kwargs)
         self.activation = activation
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout, inplace=True)
         self.pool = pool
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -48,7 +48,7 @@ class DecoderBlock(nn.Module):
             self.norm = nn.BatchNorm2d(out_channels)
         else:
             self.norm = None
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout, inplace=True)
         self.upsample_size = upsample_size
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:

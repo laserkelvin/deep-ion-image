@@ -47,7 +47,7 @@ class BaseDecoder(nn.Module):
             layers.DecoderBlock(32, 16, 3, padding=1),
             layers.DecoderBlock(16, 8, 3, padding=1),
             layers.DecoderBlock(8, 4, 3, padding=1),
-            layers.DecoderBlock(4, 1, 3, activation=nn.Sigmoid(), upsample_size=2, padding=1),
+            layers.DecoderBlock(4, 1, 3, activation=nn.Sigmoid(), upsample_size=2, padding=1, batch_norm=False),
         )
 
     def forward(self, X: torch.Tensor):
@@ -148,8 +148,11 @@ class VAE(AutoEncoder):
         self.encoding_imgsize = encoding_imgsize
         self.encoding_dim = encoding_imgsize ** 2 * encoding_filters
         self.fc_mu = nn.Linear(self.encoding_dim, latent_dim)
-        self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim)
-        self.decoder_input = nn.Linear(latent_dim, self.encoding_dim)
+        self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim),
+        self.decoder_input = nn.Sequential(
+            nn.Linear(latent_dim, self.encoding_dim),
+            nn.LeakyReLU(0.3, inplace=True)
+            )
         self.beta = beta
         self.latent_dim = latent_dim
         self.encoding_filters = encoding_filters
@@ -187,6 +190,7 @@ class VAE(AutoEncoder):
         # Split the result into mu and var components
         # of the latent Gaussian distribution
         mu = self.fc_mu(output)
+        # log_var is forced to prefer negative (small) values
         log_var = -F.leaky_relu(self.fc_logvar(output), 0.5)
 
         return [mu, log_var]
