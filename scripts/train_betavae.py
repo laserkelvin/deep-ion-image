@@ -7,15 +7,16 @@ from torch.utils.data import DataLoader
 
 from dii.pipeline.datautils import CompositeH5Dataset
 from dii.models.base import VAE, BaseEncoder, BaseDecoder
-from dii.utils import checkpoint_callback
+from dii.utils import checkpoint_callback, load_yaml
 
+config = load_yaml("betavae.yml")
 
-N_WORKERS = 8
-BATCH_SIZE = 12
-TRAIN_SEED = np.random.seed(42)
-TEST_SEED = np.random.seed(1923)
+N_WORKERS = config["n_workers"]
+BATCH_SIZE = config["batch_size"]
+TRAIN_SEED = np.random.seed(config["train_seed"])
+TEST_SEED = np.random.seed(config["test_seed"])
 
-DROPOUT = 0.0
+DROPOUT = config["dropout"]
 
 if torch.cuda.is_available():
     GPU = 1
@@ -23,7 +24,7 @@ else:
     GPU = 0
 
 
-vae = VAE(BaseEncoder(dropout=DROPOUT), BaseDecoder(dropout=DROPOUT), beta=4., lr=1e-3)
+vae = VAE(BaseEncoder(dropout=DROPOUT), BaseDecoder(dropout=DROPOUT), **config)
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
@@ -42,7 +43,8 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORK
 
 logger = pl.loggers.WandbLogger(name="beta-vae", project="deep-ion-image")
 logger.watch(vae, log="all")
+logger.log_hyperparams(config)
 
-trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8,)
+trainer = pl.Trainer(logger=logger, max_epochs=config["max_epochs"], gpus=GPU, accumulate_grad_batches=config["accumulate_grad_batches"])
 
 trainer.fit(vae, train_loader, test_loader)

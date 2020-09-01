@@ -7,15 +7,16 @@ from torch.utils.data import DataLoader
 
 from dii.pipeline.datautils import CompositeH5Dataset
 from dii.models.base import UNetAutoEncoder
-from dii.utils import checkpoint_callback
+from dii.utils import checkpoint_callback, load_yaml
 
+config = load_yaml("unet-skim.yml")
 
-N_WORKERS = 8
-BATCH_SIZE = 8
-TRAIN_SEED = np.random.seed(42)
-TEST_SEED = np.random.seed(1923)
+N_WORKERS = config["n_workers"]
+BATCH_SIZE = config["batch_size"]
+TRAIN_SEED = np.random.seed(config["train_seed"])
+TEST_SEED = np.random.seed(config["test_seed"])
 
-DROPOUT = 0.2
+DROPOUT = config["dropout"]
 
 if torch.cuda.is_available():
     GPU = 1
@@ -23,7 +24,7 @@ else:
     GPU = 0
 
 
-model = UNetAutoEncoder(lr=1e-4)
+model = UNetAutoEncoder(**config)
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
@@ -42,7 +43,8 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORK
 
 logger = pl.loggers.WandbLogger(name="unet-skim", project="deep-ion-image")
 logger.watch(model, log="all")
+logger.log_hyperparams(config)
 
-trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8, resume_from_checkpoint="deep-ion-image/yirli8lf/checkpoints/epoch=9.ckpt")
+trainer = pl.Trainer(logger=logger, max_epochs=config["max_epochs"], gpus=GPU, accumulate_grad_batches=config["accumulate_grad_batches"], resume_from_checkpoint="deep-ion-image/yirli8lf/checkpoints/epoch=9.ckpt")
 
 trainer.fit(model, train_loader, test_loader)
