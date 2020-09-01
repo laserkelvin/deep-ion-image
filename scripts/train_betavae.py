@@ -11,7 +11,7 @@ from dii.utils import checkpoint_callback
 
 
 N_WORKERS = 8
-BATCH_SIZE = 8
+BATCH_SIZE = 12
 TRAIN_SEED = np.random.seed(42)
 TEST_SEED = np.random.seed(1923)
 
@@ -23,7 +23,7 @@ else:
     GPU = 0
 
 
-vae = VAE(BaseEncoder(dropout=DROPOUT), BaseDecoder(dropout=DROPOUT), beta=4., lr=1e-4)
+vae = VAE(BaseEncoder(dropout=DROPOUT), BaseDecoder(dropout=DROPOUT), beta=4., lr=1e-3)
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
@@ -43,6 +43,6 @@ test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORK
 logger = pl.loggers.WandbLogger(name="beta-vae", project="deep-ion-image")
 logger.watch(vae, log="all")
 
-trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8, resume_from_checkpoint="deep-ion-image/3kv2vu9r/checkpoints/epoch=9.ckpt")
+trainer = pl.Trainer(logger=logger, max_epochs=30, gpus=GPU, accumulate_grad_batches=8,)
 
 trainer.fit(vae, train_loader, test_loader)
