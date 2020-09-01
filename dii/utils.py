@@ -1,5 +1,6 @@
 import os
 
+from ruamel.yaml import YAML
 from pytorch_lightning.callbacks import ModelCheckpoint
 import numpy as np
 import numba
@@ -53,4 +54,10 @@ checkpoint_callback = ModelCheckpoint(
     mode='min',
     prefix=''
 )
+
+
+def load_yaml(path: str) -> dict:
+    yaml_loader = YAML()
+    with open(path, "r") as yaml_file:
+        return yaml_loader.load(yaml_file)
 
