@@ -84,7 +84,7 @@ class TransposeDecoder(nn.Module):
 
 
 class AutoEncoder(pl.LightningModule):
-    def __init__(self, encoder, decoder, lr=1e-3):
+    def __init__(self, encoder, decoder, lr=1e-3, **kwargs):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -120,8 +120,8 @@ class AutoEncoder(pl.LightningModule):
 
 
 class UNetAutoEncoder(AutoEncoder):
-    def __init__(self, lr=1e-3, skim=True):
-        super().__init__(encoder=None, decoder=None, lr=lr)
+    def __init__(self, lr=1e-3, skim=True, **kwargs):
+        super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
         if skim:
             self.model = SkimUNet(1, 1)
         else:
@@ -143,8 +143,9 @@ class VAE(AutoEncoder):
         encoding_filters=72,
         latent_dim=64,
         lr=0.001,
+        **kwargs
     ):
-        super().__init__(encoder, decoder, lr=lr)
+        super().__init__(encoder, decoder, lr=lr, **kwargs)
         self.encoding_imgsize = encoding_imgsize
         self.encoding_dim = encoding_imgsize ** 2 * encoding_filters
         self.fc_mu = nn.Linear(self.encoding_dim, latent_dim)
