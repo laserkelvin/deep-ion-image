@@ -102,14 +102,16 @@ class AutoEncoder(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X)
-        loss = F.binary_cross_entropy(pred_Y, Y)
+        mask = Y != 0.
+        loss = F.binary_cross_entropy(pred_Y[mask], Y[mask])
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X)
-        loss = F.binary_cross_entropy(pred_Y, Y)
+        mask = Y != 0.
+        loss = F.binary_cross_entropy(pred_Y[mask], Y[mask])
         tensorboard_logs = {"validation_loss": loss}
         return {"validation_loss": loss, "log": tensorboard_logs}
 
@@ -232,7 +234,7 @@ class VAE(AutoEncoder):
         mu, log_var = self.encode(X)
         z = self.reparameterize(mu, log_var)
         pred_Y = self.decode(z)
-        loss_dict = self.loss_function(pred_Y, Y.squeeze(), mu, log_var)
+        loss_dict = self.loss_function(pred_Y.squeeze(), Y.squeeze(), mu, log_var)
         return {"loss": loss_dict["loss"], "log": loss_dict}
 
     def validation_step(self, batch, batch_idx):
@@ -240,7 +242,7 @@ class VAE(AutoEncoder):
         mu, log_var = self.encode(X)
         z = self.reparameterize(mu, log_var)
         pred_Y = self.decode(z)
-        loss_dict = self.loss_function(pred_Y, Y.squeeze(), mu, log_var)
+        loss_dict = self.loss_function(pred_Y.squeeze(), Y.squeeze(), mu, log_var)
         return {"validation_loss": loss_dict["loss"], "log": loss_dict}
 
     def validation_epoch_end(self, outputs: List[dict]) -> dict:

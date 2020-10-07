@@ -5,13 +5,18 @@ import torch
 import wandb
 
 from dii.models import base
+from dii.utils import load_yaml
 
-model = base.VAE(base.BaseEncoder(), base.BaseDecoder())
-chk = torch.load("deep-ion-image/2qqreezg/checkpoints/epoch=8.ckpt", map_location="cpu")
+betavae_config = load_yaml("betavae.yml")
+
+model = base.VAE(base.BaseEncoder(), base.BaseDecoder(), **betavae_config)
+chk = torch.load("deep-ion-image/firto7nh/checkpoints/epoch=8.ckpt", map_location="cpu")
 model.load_state_dict(chk["state_dict"])
 torch.save(model.state_dict(), "../models/betavae.pt")
 
-model = base.UNetAutoEncoder()
+unet_config = load_yaml("unet-skim.yml")
+
+model = base.UNetAutoEncoder(**unet_config)
 chk = torch.load("deep-ion-image/yirli8lf/checkpoints/epoch=9.ckpt", map_location="cpu")
 model.load_state_dict(chk["state_dict"])
 torch.save(model.state_dict(), "../models/unet-skim.pt")
