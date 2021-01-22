@@ -22,11 +22,21 @@ class BaseEncoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.ConvolutionBlock(1, 8, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout),      # 8 x 125 x 125
-            layers.ConvolutionBlock(8, 48, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout),     # 48 x 63 x 63
-            layers.ConvolutionBlock(48, 64, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout),    # 64 x 16 x 16
-            layers.ConvolutionBlock(64, 128, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout),   # 128 x 9 x 9
-            layers.ConvolutionBlock(128, 256, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout)   # 256 x 2 x 2
+            layers.ConvolutionBlock(
+                1, 8, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout
+            ),  # 8 x 125 x 125
+            layers.ConvolutionBlock(
+                8, 48, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout
+            ),  # 48 x 63 x 63
+            layers.ConvolutionBlock(
+                48, 64, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout
+            ),  # 64 x 16 x 16
+            layers.ConvolutionBlock(
+                64, 128, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout
+            ),  # 128 x 9 x 9
+            layers.ConvolutionBlock(
+                128, 256, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout
+            ),  # 256 x 2 x 2
         )
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -38,19 +48,36 @@ class BaseDecoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-                layers.TransposeDecoderBlock(256, 128, 3, padding=1, stride=4, dropout=dropout),   # 128 x 5 x 5
-                layers.TransposeDecoderBlock(128, 64, 3, padding=0, stride=2, dropout=dropout),    # 64 x 11 x 11
-                layers.TransposeDecoderBlock(64, 48, 2, padding=2, stride=2, dropout=dropout),     # 48 x 18 x 18
-                layers.TransposeDecoderBlock(48, 24, 3, padding=3, stride=4, dropout=dropout),     # 24 x 65 x 65
-                layers.TransposeDecoderBlock(24, 8, 3, padding=2, stride=2, dropout=dropout),      # 8 x 127 x 127
-                layers.TransposeDecoderBlock(8, 1, 3, activation=nn.Tanh(), padding=4, output_padding=1, batch_norm=False, stride=4), # 1 x 500 x 500
-            )
-
+            layers.TransposeDecoderBlock(
+                256, 128, 3, padding=1, stride=4, dropout=dropout
+            ),  # 128 x 5 x 5
+            layers.TransposeDecoderBlock(
+                128, 64, 3, padding=0, stride=2, dropout=dropout
+            ),  # 64 x 11 x 11
+            layers.TransposeDecoderBlock(
+                64, 48, 2, padding=2, stride=2, dropout=dropout
+            ),  # 48 x 18 x 18
+            layers.TransposeDecoderBlock(
+                48, 24, 3, padding=3, stride=4, dropout=dropout
+            ),  # 24 x 65 x 65
+            layers.TransposeDecoderBlock(
+                24, 8, 3, padding=2, stride=2, dropout=dropout
+            ),  # 8 x 127 x 127
+            layers.TransposeDecoderBlock(
+                8,
+                1,
+                3,
+                activation=nn.Tanh(),
+                padding=4,
+                output_padding=1,
+                batch_norm=False,
+                stride=4,
+            ),  # 1 x 500 x 500
+        )
 
     def forward(self, X: torch.Tensor):
         output = self.layers(X)
         return output
-
 
 
 class TransposeDecoder(nn.Module):
@@ -82,7 +109,7 @@ class TransposeDecoder(nn.Module):
 
 
 class AutoEncoder(pl.LightningModule):
-    def __init__(self, encoder, decoder, lr=1e-3, weight_decay=0., **kwargs):
+    def __init__(self, encoder, decoder, lr=1e-3, weight_decay=0.0, **kwargs):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -96,13 +123,15 @@ class AutoEncoder(pl.LightningModule):
         return self.decoder(z).squeeze()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), self.lr, weight_decay=self.weight_decay)
+        optimizer = torch.optim.Adam(
+            self.parameters(), self.lr, weight_decay=self.weight_decay
+        )
         return optimizer
 
     def training_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X).squeeze()
-        mask = Y != 0.
+        mask = Y != 0.0
         loss = self.loss(pred_Y[mask], Y[mask])
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
@@ -110,7 +139,7 @@ class AutoEncoder(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X).squeeze()
-        mask = Y != 0.
+        mask = Y != 0.0
         loss = self.loss(pred_Y[mask], Y[mask])
         tensorboard_logs = {"validation_loss": loss}
         return {"validation_loss": loss, "log": tensorboard_logs}
@@ -152,9 +181,8 @@ class VAE(AutoEncoder):
         self.fc_mu = nn.Linear(self.encoding_dim, latent_dim)
         self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim)
         self.decoder_input = nn.Sequential(
-            nn.Linear(latent_dim, self.encoding_dim),
-            nn.LeakyReLU(0.3, inplace=True)
-            )
+            nn.Linear(latent_dim, self.encoding_dim), nn.LeakyReLU(0.3, inplace=True)
+        )
         self.beta = beta
         self.latent_dim = latent_dim
         self.encoding_filters = encoding_filters
@@ -202,7 +230,10 @@ class VAE(AutoEncoder):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         batch_size = z.size(0)
         output = self.decoder_input(z).view(
-            batch_size, self.encoding_filters, self.encoding_imgsize, self.encoding_imgsize
+            batch_size,
+            self.encoding_filters,
+            self.encoding_imgsize,
+            self.encoding_imgsize,
         )
         # reshape the decoder input back into image dimensions
         output = self.decoder(output)
@@ -250,4 +281,3 @@ class VAE(AutoEncoder):
         avg_loss = torch.stack([x["validation_loss"] for x in outputs]).mean()
         tensorboard_logs = {"validation_loss": avg_loss}
         return {"avg_val_loss": avg_loss, "log": tensorboard_logs}
-

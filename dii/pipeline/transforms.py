@@ -23,7 +23,7 @@ class ProcessNumpyArray(object):
     This is needed by the result of AbelProjection, which produces float32
     arrays. We first normalize and re-scale to a max of 255, followed by
     downcasting to uint8 expected by PIL.
-    
+
     If the image is already a NumPy 2D np.uint8 array, we simply add a new
     dimension corresponding to a single "channel".
 
@@ -37,9 +37,9 @@ class ProcessNumpyArray(object):
         if X.dtype != np.uint8:
             X = X.astype(np.float32)
             X = X / X.max()
-            X *= 255.
+            X *= 255.0
             X = X.astype(np.uint8)
-        return X[:,:,np.newaxis]
+        return X[:, :, np.newaxis]
 
 
 class ToNumpy(object):
@@ -57,11 +57,11 @@ class BlurPIL(object):
 
 
 class BlurImage(object):
-    def __init__(self, max_blur=5.):
+    def __init__(self, max_blur=5.0):
         self.max_blur = max_blur
-    
+
     def __call__(self, X: np.ndarray) -> np.ndarray:
-        scale = np.random.uniform(0., self.max_blur)
+        scale = np.random.uniform(0.0, self.max_blur)
         return gaussian_filter(X, sigma=scale).astype(np.float32)
 
 
@@ -69,22 +69,25 @@ class BlurImage(object):
 # of behaviour AFAIK
 central_pipeline = tf.Compose(
     [
-        ProcessNumpyArray(),
-        tf.ToPILImage(),
-        tf.Resize((500,500)),
-        tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
-        BlurPIL(),
-        ToNumpy(),
+        # ProcessNumpyArray(),
+        # tf.ToPILImage(),
+        # tf.Resize((500,500)),
+        # tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
+        # BlurPIL(),
+        tf.ToTensor()
     ]
 )
 
 projection_pipeline = tf.Compose(
     [
-        AbelProjection(),  # Perform Abel transform to get 3D distribution
+        #        AbelProjection(),  # Perform Abel transform to get 3D distribution
         BlurImage(),
+        ProcessNumpyArray(),
         tf.ToPILImage(),
-        tf.RandomAffine(0.0, translate=(0.05, 0.05), resample=Image.BICUBIC),    # we move the 3D image around
+        tf.RandomAffine(
+            0.0, translate=(0.05, 0.05), resample=Image.BICUBIC
+        ),  # we move the 3D image around
         tf.ToTensor(),
-        #nn.Dropout(0.2),   # This adds some noise to the 3D image
+        # nn.Dropout(0.2),   # This adds some noise to the 3D image
     ]
 )

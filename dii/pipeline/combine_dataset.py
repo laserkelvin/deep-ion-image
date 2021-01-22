@@ -22,12 +22,12 @@ def read_datafiles(filepath):
     Example function for reading in data form a file.
     This needs to be adjusted for the specific format that
     will work for the project.
-    
+
     Parameters
     ----------
     filepath : [type]
         [description]
-    
+
     Returns
     -------
     [type]
@@ -43,10 +43,10 @@ def read_directory(dir_path, pattern="*", max_workers=None):
     Function that will aggregate data from a directory using a pool
     of processors. This pattern is ideally suited for many different
     files where threading is not so great.
-    
+
     By default, the max_workers argument is set to None, which will
     use as many cores as possible.
-    
+
     Parameters
     ----------
     dir_path : str
@@ -57,7 +57,7 @@ def read_directory(dir_path, pattern="*", max_workers=None):
     max_workers : int or None, optional
         Passed to the `ProcessPoolExecutor` object, setting the maximum
         number of workers; by default None
-    
+
     Returns
     -------
     Combined output of `read_datafiles` function

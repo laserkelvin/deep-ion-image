@@ -40,14 +40,14 @@ class H5Dataset(data.Dataset):
         self.key = key
         self.dataset = None
         if not transform:
-            self.transform = central_pipeline
+            self.transform = projection_pipeline
         else:
             if type(transform) == list or type(transform) == tuple:
                 self.transform = Compose(transform)
             else:
                 self.transform = transform
         if not transform:
-            self.target_transform = projection_pipeline
+            self.target_transform = central_pipeline
         else:
             if type(target_transform) == list or type(target_transform) == tuple:
                 self.target_transform = Compose(target_transform)
@@ -59,7 +59,7 @@ class H5Dataset(data.Dataset):
     def __getitem__(self, index: int) -> torch.Tensor:
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, "r")[self.key]
-        X = np.array(self.dataset[index]).astype(np.float32)
+        X = np.array(self.dataset[index])
         # if we have a transform pipeline, run it
         if self.transform:
             return self.transform(X)
@@ -141,8 +141,10 @@ class CompositeH5Dataset(H5Dataset):
         -------
         Tuple[torch.Tensor, torch.Tensor]
         """
+        # use the projection set as the "dataset"
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, "r")[self.key]
+        self.target_dataset = h5py.File(self.file_path, "r")["true"]
         # get the number of images to compose with, sampled from an exponential
         # decay distribution
         n_composites = int(np.random.exponential(self.scale) + 1)
@@ -150,21 +152,24 @@ class CompositeH5Dataset(H5Dataset):
         chosen = np.random.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
             chosen = sorted(chosen)
-        Y = np.array(self.dataset[chosen]).astype(np.float32)
+        # get the true central image and projections
+        true = np.array(self.target_dataset[chosen])
+        projection = np.array(self.dataset[chosen])
         # if we have multiple images, flatten to a single composite
-        # so that the dimensions are H x W expected by PyAbel
-        if Y.ndim == 3:
-            Y = Y.sum(axis=0)
+        if true.ndim == 3:
+            true = true.sum(axis=0)
+        if projection.ndim == 3:
+            projection = projection.sum(axis=0)
         # if we have a compose pipeline defined, run it
-        if self.transform:
-            Y = self.transform(Y)
+        if self.target_transform:
+            true = self.target_transform(true)
         # Y is the central slice, whereas X is the projection, which is
         # appropriate for the direction we're going
-        X = self.target_transform(Y)
+        projection = self.transform(projection)
         # Normalize the image intensity to [0, 1]
-        X = X / (X.max() + 1e-9)
-        Y = Y / (Y.max() + 1e-9)
-        return (X, Y)
+        projection = projection / (projection.max() + 1e-9)
+        true = true / (true.max() + 1e-9)
+        return (projection, true)
 
 
 class SelectiveComposite(H5Dataset):

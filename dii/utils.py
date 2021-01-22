@@ -8,9 +8,10 @@ import numba
 
 # Auxillary routines for random numerical checks
 
+
 @numba.njit
 def cart2r(x: float, y: float) -> float:
-    r = np.sqrt(x**2 + y**2)
+    r = np.sqrt(x ** 2 + y ** 2)
     return r
 
 
@@ -29,7 +30,7 @@ def radial_integration(image: np.ndarray) -> np.ndarray:
     Returns
     -------
     np.ndarray
-        NumPy 1D array corresponding to 
+        NumPy 1D array corresponding to
     """
     h, w = image.shape
     center = (h + w) // 4
@@ -40,7 +41,7 @@ def radial_integration(image: np.ndarray) -> np.ndarray:
             # for some reason, it wants to go out of bounds
             # sometimes
             if r < center:
-                r_bins[r] += image[x+center, y+center]
+                r_bins[r] += image[x + center, y + center]
     hist_max = r_bins.max()
     return r_bins / hist_max
 
@@ -50,9 +51,9 @@ checkpoint_callback = ModelCheckpoint(
     filepath=os.getcwd(),
     save_top_k=1,
     verbose=True,
-    monitor='validation_loss',
-    mode='min',
-    prefix=''
+    monitor="validation_loss",
+    mode="min",
+    prefix="",
 )
 
 
@@ -60,4 +61,3 @@ def load_yaml(path: str) -> dict:
     yaml_loader = YAML()
     with open(path, "r") as yaml_file:
         return yaml_loader.load(yaml_file)
-
