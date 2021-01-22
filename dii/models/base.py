@@ -81,32 +81,21 @@ class BaseDecoder(nn.Module):
         return output
 
 
-class TransposeDecoder(nn.Module):
+class UpsampleDecoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
-        self.model = nn.Sequential(
-            layers.TransposeDecoderBlock(
-                256, 128, 5, stride=4, padding=1, output_padding=3, dropout=dropout
-            ),
-            layers.TransposeDecoderBlock(
-                128, 64, 2, stride=4, padding=1, output_padding=2, dropout=dropout
-            ),
-            layers.TransposeDecoderBlock(
-                64, 32, 4, stride=3, padding=1, output_padding=2, dropout=dropout
-            ),
-            layers.TransposeDecoderBlock(
-                32, 16, 3, stride=3, padding=1, output_padding=1, dropout=dropout
-            ),
-            layers.TransposeDecoderBlock(
-                16, 8, 2, stride=3, padding=0, output_padding=1, dropout=dropout
-            ),
-            layers.TransposeDecoderBlock(
-                8, 1, 2, stride=2, padding=0, batch_norm=False, activation=nn.Sigmoid()
-            ),
+        self.layers = nn.Sequential(
+            layers.DecoderBlock(256, 128, 3, padding=1, upsample_size=4, dropout=dropout),
+            layers.DecoderBlock(128, 64, 3, padding=1, dropout=dropout),
+            layers.DecoderBlock(64, 48, 3, padding=1, upsample_size=4, dropout=dropout),
+            layers.DecoderBlock(48, 24, 5, padding=0, dropout=dropout),
+            layers.DecoderBlock(24, 8, 3, padding=2, dropout=dropout),
+            layers.DecoderBlock(8, 1, 3, activation=nn.Sigmoid(), batch_norm=False, padding=1),
         )
 
     def forward(self, X: torch.Tensor):
-        return self.model(X)
+        output = self.layers(X)
+        return output
 
 
 class AutoEncoder(pl.LightningModule):
