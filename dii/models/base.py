@@ -49,31 +49,12 @@ class BaseDecoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.TransposeDecoderBlock(
-                256, 128, 3, padding=1, stride=4, dropout=dropout
-            ),  # 128 x 5 x 5
-            layers.TransposeDecoderBlock(
-                128, 64, 3, padding=0, stride=2, dropout=dropout
-            ),  # 64 x 11 x 11
-            layers.TransposeDecoderBlock(
-                64, 48, 2, padding=2, stride=2, dropout=dropout
-            ),  # 48 x 18 x 18
-            layers.TransposeDecoderBlock(
-                48, 24, 3, padding=3, stride=4, dropout=dropout
-            ),  # 24 x 65 x 65
-            layers.TransposeDecoderBlock(
-                24, 8, 3, padding=2, stride=2, dropout=dropout
-            ),  # 8 x 127 x 127
-            layers.TransposeDecoderBlock(
-                8,
-                1,
-                3,
-                activation=nn.Sigmoid(),
-                padding=4,
-                output_padding=1,
-                batch_norm=False,
-                stride=4,
-            ),  # 1 x 500 x 500
+            layers.TransposeDecoderBlock(256, 128, 4, padding=1, stride=4, output_padding=3),
+            layers.TransposeDecoderBlock(128, 64, 3, padding=2, stride=2, output_padding=1),
+            layers.TransposeDecoderBlock(64, 48, 4, padding=1, stride=4, output_padding=2),
+            layers.TransposeDecoderBlock(48, 24, 8, padding=5, stride=4),
+            layers.TransposeDecoderBlock(24, 8, 4, padding=3, stride=2, output_padding=1),
+            layers.TransposeDecoderBlock(8, 1, 4, activation=nn.Sigmoid(), batch_norm=False, stride=1),
         )
 
     def forward(self, X: torch.Tensor):
@@ -85,17 +66,19 @@ class UpsampleDecoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.DecoderBlock(256, 128, 3, padding=1, upsample_size=4, dropout=dropout),
-            layers.DecoderBlock(128, 64, 3, padding=1, dropout=dropout),
-            layers.DecoderBlock(64, 48, 3, padding=1, upsample_size=4, dropout=dropout),
-            layers.DecoderBlock(48, 24, 5, padding=0, dropout=dropout),
-            layers.DecoderBlock(24, 8, 3, padding=2, dropout=dropout),
-            layers.DecoderBlock(8, 1, 3, activation=nn.Sigmoid(), batch_norm=False, padding=1),
+            layers.DecoderBlock(256, 128, 3, padding=2, upsample_size=4, reflection=2),
+            layers.DecoderBlock(128, 64, 3, padding=1, reflection=1),
+            layers.DecoderBlock(64, 48, 5, padding=2, upsample_size=2),
+            layers.DecoderBlock(48, 24, 3, reflection=1),
+            layers.DecoderBlock(24, 12, 3, padding=1, reflection=1),
+            layers.DecoderBlock(12, 8, 5, upsample_size=2),
+            layers.DecoderBlock(8, 1, 3, activation=nn.Sigmoid(), batch_norm=False, upsample_size=1, padding=1),
         )
 
     def forward(self, X: torch.Tensor):
         output = self.layers(X)
         return output
+
 
 
 class AutoEncoder(pl.LightningModule):
@@ -106,7 +89,7 @@ class AutoEncoder(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.apply(initialize_weights)
-        self.metric = nn.MSELoss()
+        self.metric = nn.BCELoss()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -121,17 +104,26 @@ class AutoEncoder(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X).squeeze()
-        loss = self.metric(pred_Y, Y)
-        self.log("training_recon", loss_dict.get("loss"))
-        return {"loss": loss, "log": tensorboard_logs}
+        loss = self.metric(pred_Y.squeeze(), Y.squeeze())
+        self.log("training_recon", loss)
+        return loss
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
-        pred_Y = self.forward(X).squeeze()
-        loss = self.metric(pred_Y, Y)
-        self.log("validation_recon", loss_dict.get("loss"))
-        tensorboard_logs = {"validation_loss": loss}
-        return {"validation_loss": loss, "log": tensorboard_logs}
+        pred_Y = self.forward(X)
+        loss = self.metric(pred_Y.squeeze(), Y.squeeze())
+        self.log("validation_recon", loss)
+        input_image = X[0].cpu().detach()
+        target_image = Y[0].cpu().detach()
+        pred_image = pred_Y[0].cpu().detach()
+        self.logger.experiment.log(
+            {
+                "input_image": [wandb.Image(input_image, caption="Input")],
+                "target_image": [wandb.Image(target_image, caption="Target")],
+                "pred_image": [wandb.Image(pred_image, caption="Prediction")],
+            }
+        )
+        return loss
 
 
 
@@ -171,7 +163,7 @@ class VAE(AutoEncoder):
         self.beta = beta
         self.latent_dim = latent_dim
         self.encoding_filters = encoding_filters
-        self.metric = nn.MSELoss()
+        self.metric = nn.BCELoss()
         self.apply(initialize_weights)
 
     def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
