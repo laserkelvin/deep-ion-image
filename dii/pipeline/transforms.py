@@ -71,7 +71,7 @@ central_pipeline = tf.Compose(
     [
         ProcessNumpyArray(),
         tf.ToPILImage(),
-        tf.Resize((1024,1024)),
+        tf.Resize((500,500)),
         tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
         BlurPIL(),
         ToNumpy(),
@@ -85,6 +85,6 @@ projection_pipeline = tf.Compose(
         tf.ToPILImage(),
         tf.RandomAffine(0.0, translate=(0.05, 0.05), resample=Image.BICUBIC),    # we move the 3D image around
         tf.ToTensor(),
-        nn.Dropout(0.2),   # This adds some noise to the 3D image
+        #nn.Dropout(0.2),   # This adds some noise to the 3D image
     ]
 )

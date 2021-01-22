@@ -16,6 +16,8 @@ BATCH_SIZE = config["batch_size"]
 TRAIN_SEED = np.random.seed(config["train_seed"])
 TEST_SEED = np.random.seed(config["test_seed"])
 
+GRAD_CLIP = config.get("gradient_clip_val", 0.)
+
 DROPOUT = config["dropout"]
 
 if torch.cuda.is_available():
@@ -27,7 +29,7 @@ else:
 vae = VAE(BaseEncoder(dropout=DROPOUT), BaseDecoder(dropout=DROPOUT), **config)
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
-    train_indices = np.array(h5_file["train"])
+    train_indices = np.array(h5_file["dev"])
     test_indices = np.array(h5_file["test"])
 
 # Load up the datasets; random seed is set for the training set
@@ -45,6 +47,12 @@ logger = pl.loggers.WandbLogger(name="beta-vae", project="deep-ion-image")
 logger.watch(vae, log="all")
 logger.log_hyperparams(config)
 
-trainer = pl.Trainer(logger=logger, max_epochs=config["max_epochs"], gpus=GPU, accumulate_grad_batches=config["accumulate_grad_batches"])
+trainer = pl.Trainer(
+    max_epochs=config["max_epochs"],
+    gpus=GPU,
+    accumulate_grad_batches=config["accumulate_grad_batches"],
+    logger=logger,
+    gradient_clip_val=GRAD_CLIP
+    )
 
 trainer.fit(vae, train_loader, test_loader)

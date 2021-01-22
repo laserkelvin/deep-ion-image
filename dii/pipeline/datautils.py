@@ -59,12 +59,12 @@ class H5Dataset(data.Dataset):
     def __getitem__(self, index: int) -> torch.Tensor:
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, "r")[self.key]
-        X = self.dataset[index].astype(np.float32)
+        X = np.array(self.dataset[index]).astype(np.float32)
         # if we have a transform pipeline, run it
         if self.transform:
             return self.transform(X)
-        X = np.divide(X, X.max(), out=X)
-        return X
+        X_max = X.max()
+        return X / X_max
 
     def __len__(self):
         return self.dataset_len
@@ -150,7 +150,7 @@ class CompositeH5Dataset(H5Dataset):
         chosen = np.random.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
             chosen = sorted(chosen)
-        Y = np.array(self.dataset[chosen], dtype=np.float32)
+        Y = np.array(self.dataset[chosen]).astype(np.float32)
         # if we have multiple images, flatten to a single composite
         # so that the dimensions are H x W expected by PyAbel
         if Y.ndim == 3:

@@ -39,7 +39,7 @@ class UNet(nn.Module):
 
 
 class SkimUNet(UNet):
-    def __init__(self, n_channels, n_classes, bilinear=True, final_act=nn.Sigmoid()):
+    def __init__(self, n_channels, n_classes, bilinear=True, final_act=nn.Tanh()):
         super().__init__(n_channels, n_classes, bilinear, final_act)
 
         self.inc = DoubleConv(n_channels, 16)

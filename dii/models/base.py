@@ -22,14 +22,11 @@ class BaseEncoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.ConvolutionBlock(1, 4, 3, padding=1),
-            layers.ConvolutionBlock(4, 8, 3, padding=1),
-            layers.ConvolutionBlock(8, 16, 3, padding=1),
-            layers.ConvolutionBlock(16, 32, 3, padding=1),
-            layers.ConvolutionBlock(32, 48, 3, padding=1),
-            layers.ConvolutionBlock(48, 64, 3, padding=1),
-            layers.ConvolutionBlock(64, 72, 3, padding=1),
-            nn.Flatten(),
+            layers.ConvolutionBlock(1, 8, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout),      # 8 x 125 x 125
+            layers.ConvolutionBlock(8, 48, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout),     # 48 x 63 x 63
+            layers.ConvolutionBlock(48, 64, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout),    # 64 x 16 x 16
+            layers.ConvolutionBlock(64, 128, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout),   # 128 x 9 x 9
+            layers.ConvolutionBlock(128, 256, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout)   # 256 x 2 x 2
         )
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -41,18 +38,19 @@ class BaseDecoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.DecoderBlock(72, 64, 3, padding=1),
-            layers.DecoderBlock(64, 48, 3, padding=1),
-            layers.DecoderBlock(48, 32, 3, padding=1),
-            layers.DecoderBlock(32, 16, 3, padding=1),
-            layers.DecoderBlock(16, 8, 3, padding=1),
-            layers.DecoderBlock(8, 4, 3, padding=1),
-            layers.DecoderBlock(4, 1, 3, activation=nn.Sigmoid(), upsample_size=2, padding=1, batch_norm=False),
-        )
+                layers.TransposeDecoderBlock(256, 128, 3, padding=1, stride=4, dropout=dropout),   # 128 x 5 x 5
+                layers.TransposeDecoderBlock(128, 64, 3, padding=0, stride=2, dropout=dropout),    # 64 x 11 x 11
+                layers.TransposeDecoderBlock(64, 48, 2, padding=2, stride=2, dropout=dropout),     # 48 x 18 x 18
+                layers.TransposeDecoderBlock(48, 24, 3, padding=3, stride=4, dropout=dropout),     # 24 x 65 x 65
+                layers.TransposeDecoderBlock(24, 8, 3, padding=2, stride=2, dropout=dropout),      # 8 x 127 x 127
+                layers.TransposeDecoderBlock(8, 1, 3, activation=nn.Tanh(), padding=4, output_padding=1, batch_norm=False, stride=4), # 1 x 500 x 500
+            )
+
 
     def forward(self, X: torch.Tensor):
         output = self.layers(X)
         return output
+
 
 
 class TransposeDecoder(nn.Module):
@@ -84,34 +82,36 @@ class TransposeDecoder(nn.Module):
 
 
 class AutoEncoder(pl.LightningModule):
-    def __init__(self, encoder, decoder, lr=1e-3, **kwargs):
+    def __init__(self, encoder, decoder, lr=1e-3, weight_decay=0., **kwargs):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.lr = lr
+        self.weight_decay = weight_decay
         self.apply(initialize_weights)
+        self.loss = nn.MSELoss()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
         return self.decoder(z).squeeze()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), self.lr)
+        optimizer = torch.optim.Adam(self.parameters(), self.lr, weight_decay=self.weight_decay)
         return optimizer
 
     def training_step(self, batch, batch_idx):
         X, Y = batch
-        pred_Y = self.forward(X)
+        pred_Y = self.forward(X).squeeze()
         mask = Y != 0.
-        loss = F.binary_cross_entropy(pred_Y[mask], Y[mask])
+        loss = self.loss(pred_Y[mask], Y[mask])
         tensorboard_logs = {"train_loss": loss}
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
-        pred_Y = self.forward(X)
+        pred_Y = self.forward(X).squeeze()
         mask = Y != 0.
-        loss = F.binary_cross_entropy(pred_Y[mask], Y[mask])
+        loss = self.loss(pred_Y[mask], Y[mask])
         tensorboard_logs = {"validation_loss": loss}
         return {"validation_loss": loss, "log": tensorboard_logs}
 
@@ -131,7 +131,6 @@ class UNetAutoEncoder(AutoEncoder):
         self.apply(initialize_weights)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        assert X.ndim == 4
         return self.model(X)
 
 
@@ -149,7 +148,7 @@ class VAE(AutoEncoder):
     ):
         super().__init__(encoder, decoder, lr=lr, **kwargs)
         self.encoding_imgsize = encoding_imgsize
-        self.encoding_dim = encoding_imgsize ** 2 * encoding_filters
+        self.encoding_dim = (encoding_imgsize ** 2) * encoding_filters
         self.fc_mu = nn.Linear(self.encoding_dim, latent_dim)
         self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim)
         self.decoder_input = nn.Sequential(
@@ -159,6 +158,7 @@ class VAE(AutoEncoder):
         self.beta = beta
         self.latent_dim = latent_dim
         self.encoding_filters = encoding_filters
+        self.metric = nn.MSELoss()
         self.apply(initialize_weights)
 
     def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
@@ -187,9 +187,10 @@ class VAE(AutoEncoder):
         List[Tensor]
             [description]
         """
-        # this generates shape (N x 4608) from flattening
-        # the filter x H x W
-        output = self.encoder(X)
+        # get batch size for flattening later
+        batch_size = X.size(0)
+        # run through encoder model, and flatten for linear layer
+        output = self.encoder(X).view(batch_size, -1)
         # Split the result into mu and var components
         # of the latent Gaussian distribution
         mu = self.fc_mu(output)
@@ -215,7 +216,7 @@ class VAE(AutoEncoder):
         log_var: torch.Tensor,
     ) -> dict:
         batch_size = Y.size(0)
-        recon_loss = F.binary_cross_entropy(pred_Y, Y)
+        recon_loss = self.metric(pred_Y, Y)
         kld_loss = torch.mean(
             -0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0
         )

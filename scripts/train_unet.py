@@ -27,7 +27,7 @@ else:
 model = UNetAutoEncoder(**config)
 
 with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
-    train_indices = np.array(h5_file["train"])
+    train_indices = np.array(h5_file["dev"])
     test_indices = np.array(h5_file["test"])
 
 # Load up the datasets; random seed is set for the training set
@@ -38,13 +38,13 @@ test_dataset = CompositeH5Dataset(
     "../data/raw/ion_images.h5", "true", indices=test_indices, seed=TEST_SEED
 )
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
-test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=False)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=False)
 
 logger = pl.loggers.WandbLogger(name="unet-skim", project="deep-ion-image")
 logger.watch(model, log="all")
 logger.log_hyperparams(config)
 
-trainer = pl.Trainer(logger=logger, max_epochs=config["max_epochs"], gpus=GPU, accumulate_grad_batches=config["accumulate_grad_batches"], resume_from_checkpoint="deep-ion-image/yirli8lf/checkpoints/epoch=9.ckpt")
+trainer = pl.Trainer(max_epochs=config["max_epochs"], gpus=GPU, accumulate_grad_batches=config["accumulate_grad_batches"], logger=logger)
 
 trainer.fit(model, train_loader, test_loader)

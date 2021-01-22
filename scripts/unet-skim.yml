@@ -1,9 +1,9 @@
-img_size: 1024
-lr: 0.001
-batch_size: 6
+img_size: 500
+lr: 5e-4
+batch_size: 4
 test_seed: 1923
 train_seed: 42
 n_workers: 8
 dropout: 0.
-accumulate_grad_batches: 12
-max_epochs: 30
+accumulate_grad_batches: 16
+max_epochs: 50
