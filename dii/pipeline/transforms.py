@@ -1,5 +1,6 @@
 import abel
 import numpy as np
+import torch
 from torch import nn
 from torchvision import transforms as tf
 from PIL import Image, ImageFilter
@@ -65,23 +66,32 @@ class BlurImage(object):
         return gaussian_filter(X, sigma=scale).astype(np.float32)
 
 
+class Normalize(object):
+    def __init__(self, eps: float = 1e-8):
+        self.eps = eps
+
+    def __call__(self, X: torch.Tensor) -> torch.Tensor:
+        max_val = X.max()
+        return X / (max_val + self.eps)
+
 # this is a pipeline that has been tested and is known to provide the "right" kind
 # of behaviour AFAIK
 central_pipeline = tf.Compose(
     [
         # ProcessNumpyArray(),
-        # tf.ToPILImage(),
-        # tf.Resize((500,500)),
-        # tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
+        #tf.ToPILImage(),
+        #tf.Resize((500,500)),
+        #tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
         # BlurPIL(),
-        tf.ToTensor()
+        tf.ToTensor(),
+        Normalize(),
     ]
 )
 
 projection_pipeline = tf.Compose(
     [
         #        AbelProjection(),  # Perform Abel transform to get 3D distribution
-        BlurImage(),
+        #BlurImage(),
         ProcessNumpyArray(),
         tf.ToPILImage(),
         tf.RandomAffine(
@@ -89,5 +99,6 @@ projection_pipeline = tf.Compose(
         ),  # we move the 3D image around
         tf.ToTensor(),
         # nn.Dropout(0.2),   # This adds some noise to the 3D image
+        Normalize()
     ]
 )

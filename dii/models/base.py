@@ -2,6 +2,7 @@ from typing import Dict, List
 
 import torch
 import pytorch_lightning as pl
+import wandb
 from torch import nn
 from torch.nn import functional as F
 
@@ -67,7 +68,7 @@ class BaseDecoder(nn.Module):
                 8,
                 1,
                 3,
-                activation=nn.Tanh(),
+                activation=nn.Sigmoid(),
                 padding=4,
                 output_padding=1,
                 batch_norm=False,
@@ -116,7 +117,7 @@ class AutoEncoder(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.apply(initialize_weights)
-        self.loss = nn.MSELoss()
+        self.metric = nn.MSELoss()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -131,23 +132,18 @@ class AutoEncoder(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X).squeeze()
-        mask = Y != 0.0
-        loss = self.loss(pred_Y[mask], Y[mask])
-        tensorboard_logs = {"train_loss": loss}
+        loss = self.metric(pred_Y, Y)
+        self.log("training_recon", loss_dict.get("loss"))
         return {"loss": loss, "log": tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X).squeeze()
-        mask = Y != 0.0
-        loss = self.loss(pred_Y[mask], Y[mask])
+        loss = self.metric(pred_Y, Y)
+        self.log("validation_recon", loss_dict.get("loss"))
         tensorboard_logs = {"validation_loss": loss}
         return {"validation_loss": loss, "log": tensorboard_logs}
 
-    def validation_epoch_end(self, outputs: List[dict]) -> dict:
-        avg_loss = torch.stack([x["validation_loss"] for x in outputs]).mean()
-        tensorboard_logs = {"validation_loss": avg_loss}
-        return {"avg_val_loss": avg_loss, "log": tensorboard_logs}
 
 
 class UNetAutoEncoder(AutoEncoder):
@@ -267,7 +263,10 @@ class VAE(AutoEncoder):
         z = self.reparameterize(mu, log_var)
         pred_Y = self.decode(z)
         loss_dict = self.loss_function(pred_Y.squeeze(), Y.squeeze(), mu, log_var)
-        return {"loss": loss_dict["loss"], "log": loss_dict}
+        self.log("training_total", loss_dict.get("loss"))
+        self.log("training_recon", loss_dict.get("reconstruction_loss"))
+        self.log("training_kl", loss_dict.get("kl_div"))
+        return {"loss": loss_dict["loss"]}
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
@@ -275,9 +274,18 @@ class VAE(AutoEncoder):
         z = self.reparameterize(mu, log_var)
         pred_Y = self.decode(z)
         loss_dict = self.loss_function(pred_Y.squeeze(), Y.squeeze(), mu, log_var)
-        return {"validation_loss": loss_dict["loss"], "log": loss_dict}
-
-    def validation_epoch_end(self, outputs: List[dict]) -> dict:
-        avg_loss = torch.stack([x["validation_loss"] for x in outputs]).mean()
-        tensorboard_logs = {"validation_loss": avg_loss}
-        return {"avg_val_loss": avg_loss, "log": tensorboard_logs}
+        self.log("validation_total", loss_dict.get("loss"))
+        self.log("validation_recon", loss_dict.get("reconstruction_loss"))
+        self.log("validation_kl", loss_dict.get("kl_div"))
+        # sample images for visual checking
+        input_image = X[0].cpu().detach()
+        target_image = Y[0].cpu().detach()
+        pred_image = pred_Y[0].cpu().detach()
+        self.logger.experiment.log(
+            {
+                "input_image": [wandb.Image(input_image, caption="Input")],
+                "target_image": [wandb.Image(target_image, caption="Target")],
+                "pred_image": [wandb.Image(pred_image, caption="Prediction")],
+            }
+        )
+        return {"validation_loss": loss_dict["loss"]}

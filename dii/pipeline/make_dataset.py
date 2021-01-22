@@ -75,8 +75,9 @@ def generate_image(
     p_theta /= np.sum(p_theta)
     # image given as the product of the two probability distributions
     img = p_r * p_theta
-    # normalize pixel intensities
-    img /= img.max()
+    # normalize pixel intensities; add a small number to prevent
+    # explosion
+    img /= (img.max() + 1e-9)
     # now do the forward Abel transform to get the "experimental image"
     forward_abel = abel.Transform(
         img, direction="forward", method="hansenlaw"
@@ -94,7 +95,8 @@ def create_ion_image_composite(
     # generate the range of beta parameters -1 to +2.
     betas = rng.uniform(-1.0, 2.0, size=n_images)
     sigma = rng.uniform(0.1, max_sigma, size=n_images)
-    mu = rng.uniform(0.0, dim - (dim * 0.2), size=n_images)
+    center = dim // 2
+    mu = rng.uniform(0.0, center * 0.9, size=n_images)
     h5_file = h5py.File(filepath, mode="a")
     beta_values = h5_file.create_dataset(
         "beta", (n_images,), dtype=np.float32, data=betas

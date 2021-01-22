@@ -34,10 +34,10 @@ with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
 
 # Load up the datasets; random seed is set for the training set
 train_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "true", indices=train_indices, seed=TRAIN_SEED
+    "../data/raw/ion_images.h5", "projection", indices=train_indices, seed=TRAIN_SEED
 )
 test_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "true", indices=test_indices, seed=TEST_SEED
+    "../data/raw/ion_images.h5", "projection", indices=test_indices, seed=TEST_SEED
 )
 
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
@@ -51,8 +51,8 @@ trainer = pl.Trainer(
     max_epochs=config["max_epochs"],
     gpus=GPU,
     accumulate_grad_batches=config["accumulate_grad_batches"],
+    gradient_clip_val=GRAD_CLIP,
     logger=logger,
-    gradient_clip_val=GRAD_CLIP
     )
 
 trainer.fit(vae, train_loader, test_loader)

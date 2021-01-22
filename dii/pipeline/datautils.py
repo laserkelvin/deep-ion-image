@@ -166,9 +166,6 @@ class CompositeH5Dataset(H5Dataset):
         # Y is the central slice, whereas X is the projection, which is
         # appropriate for the direction we're going
         projection = self.transform(projection)
-        # Normalize the image intensity to [0, 1]
-        projection = projection / (projection.max() + 1e-9)
-        true = true / (true.max() + 1e-9)
         return (projection, true)
 
 
