@@ -6,10 +6,9 @@ N_IMAGES = 10000
 FILEPATH = "ion_images.h5"
 
 # Square image dimensions
-DIM = 1200
-MAX_IONS = 500000
+DIM = 500
 
 SEED = 42
 
-make_dataset.create_ion_image_composite(FILEPATH, N_IMAGES, DIM, MAX_IONS, seed=SEED)
+make_dataset.create_ion_image_composite(FILEPATH, N_IMAGES, dim=DIM, seed=SEED, n_jobs=8)
 

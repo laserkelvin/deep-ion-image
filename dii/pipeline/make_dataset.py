@@ -13,8 +13,10 @@ import numpy as np
 import abel
 from loguru import logger
 from scipy.special import eval_legendre
+from scipy import stats
 from numba import njit
 from tqdm.auto import tqdm
+from joblib import Parallel, delayed
 
 
 def pol2cart(angle: np.ndarray, velocity: np.ndarray, image_center=400) -> Tuple[np.ndarray, np.ndarray]:
@@ -48,24 +50,78 @@ def generate_ion_image(dim=1000, nions=10000, sigma=5., beta=0.) -> np.ndarray:
     return image
 
 
-def create_ion_image_composite(filepath: str, n_images=300000, dim=1200, max_ions=500000, max_sigma=50., seed=42) -> np.ndarray:
+def generate_image(r_mu: float, r_sigma: float, beta: float, img_size: int = 500) -> np.ndarray:
+    # define image center
+    center = img_size // 2
+    # this sets the grid of radial values, by shifting to image center
+    r_grid = np.arange(img_size) - center
+    # generate a memory efficient xy pair representation
+    x, y = np.meshgrid(r_grid, r_grid, sparse=True)
+    # calculate radius and angle. The ordering for arctan2 is very important;
+    # if x and y are flipped then the polarization/beta does too
+    r = np.hypot(x, y)
+    theta = np.arctan2(x, y)
+    # arctan2 will flip the angle sign depending on the quadrant
+    # this makes it so that the angle is out of 2pi
+    theta[theta <= 0.] += 2 * np.pi
+    # calculate the radial distribution using a Gaussian; flatten will vectorize this
+    # and reshaping it after will get you back your 2D
+    p_r = stats.norm.pdf(r, loc=r_mu, scale=r_sigma)
+    # calculate the angular distribution, and normalize
+    p_theta = (4 * np.pi * -1 * (1 + beta * eval_legendre(2, np.cos(theta))))
+    p_theta /= np.sum(p_theta)
+    # image given as the product of the two probability distributions
+    img = p_r * p_theta
+    # normalize pixel intensities
+    img /= img.max()
+    # now do the forward Abel transform to get the "experimental image"
+    forward_abel = abel.Transform(img, direction='forward', method='hansenlaw').transform
+    return (img, forward_abel)
+
+
+def create_ion_image_composite(filepath: str, n_images=300000, dim=500, max_sigma=50., seed=42, n_jobs=1) -> np.ndarray:
     logger.add("LOG")
     logger.info(f"Random seed: {seed}")
     logger.info(f"Generating {n_images} ion images.")
-    seed = np.random.seed(seed)
-    n_ions = np.random.randint(10000, max_ions, size=n_images)
+    rng = np.random.default_rng(seed)
     # generate the range of beta parameters -1 to +2.
-    betas = np.random.uniform(-1., 2., size=n_images)
-    sigma = np.random.uniform(1., max_sigma)
-    sigmas = np.random.rand(n_images) * sigma
+    betas = rng.uniform(-1., 2., size=n_images)
+    sigma = rng.uniform(0.1, max_sigma, size=n_images)
+    mu = rng.uniform(0., dim - (dim * 0.2), size=n_images)
     h5_file = h5py.File(filepath, mode="a")
     beta_values = h5_file.create_dataset("beta", (n_images,), dtype=np.float32, compression="gzip", data=betas)
-    ion_count = h5_file.create_dataset("counts", (n_images,), data=n_ions, compression="gzip")
-    images = h5_file.require_dataset("true", (n_images, dim, dim), dtype=np.uint8, compression="gzip", compression_opts=5)
+    #true_images = h5_file.require_dataset("true", (n_images, dim, dim), dtype=np.float32, compression="gzip", compression_opts=1)
+    #projections = h5_file.require_dataset("projection", (n_images, dim, dim), dtype=np.float32, compression="gzip", compression_opts=1)
     try:
-        for index, (ion_count, beta, sigma) in tqdm(enumerate(zip(n_ions, betas, sigmas))):
-            true_image = generate_ion_image(dim, ion_count, sigma, beta)
-            images[index,:,:] = true_image
+        # serial processing
+        if n_jobs == 1:
+            for index, (mu_i, sigma_i, beta_i) in tqdm(enumerate(zip(mu, sigma, betas))):
+                true_image, projection = generate_image(mu_i, sigma_i, beta_i, dim)
+                true_images[index,:,:] = true_image
+                projections[index,:,:] = projection
+        elif n_jobs > 1:
+            data = Parallel(n_jobs=n_jobs)(delayed(generate_image)(mu_i, sigma_i, beta_i, dim) for mu_i, sigma_i, beta_i in tqdm(zip(mu, sigma, betas)))
+            temp_true, temp_projection = list(), list()
+            for image_pair in data:
+                true_image, projection = image_pair
+                temp_true.append(true_image)
+                temp_projection.append(projection)
+            true_images = h5_file.create_dataset("true", (n_images, dim, dim), dtype=np.float32, compression="gzip", compression_opts=1,
+                    data=np.array(temp_true, dtype=np.float32)
+                    )
+            projections = h5_file.create_dataset("projection", (n_images, dim, dim), dtype=np.float32, compression="gzip", compression_opts=1,
+                    data=np.array(temp_projection, dtype=np.float32)
+                    )
+        # do the train/test/dev split; 10% dev, 10% test, and 80% train
+        indices = np.arange(n_images, dtype=int)
+        rng.shuffle(indices)
+        short_num = int(n_images * 0.1)
+        dev = indices[:short_num]
+        test = indices[short_num:short_num * 2]
+        train = indices[short_num * 2:]
+        h5_file.create_dataset("train", (len(train),), dtype=np.uint16, data=train)
+        h5_file.create_dataset("dev", (len(dev),), dtype=np.uint16, data=dev)
+        h5_file.create_dataset("test", (len(test),), dtype=np.uint16, data=test)
     finally:
         h5_file.close()
 
