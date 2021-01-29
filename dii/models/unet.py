@@ -11,15 +11,15 @@ class UNet(nn.Module):
         self.bilinear = bilinear
 
         self.inc = DoubleConv(n_channels, 64)
-        self.down1 = UnetEncoder(64, 128)
-        self.down2 = UnetEncoder(128, 256)
-        self.down3 = UnetEncoder(256, 512)
+        self.down1 = UnetEncoderBlock(64, 128)
+        self.down2 = UnetEncoderBlock(128, 256)
+        self.down3 = UnetEncoderBlock(256, 512)
         factor = 2 if bilinear else 1
-        self.down4 = UnetEncoder(512, 1024 // factor)
-        self.up1 = UnetDecoder(1024, 512 // factor, bilinear)
-        self.up2 = UnetDecoder(512, 256 // factor, bilinear)
-        self.up3 = UnetDecoder(256, 128 // factor, bilinear)
-        self.up4 = UnetDecoder(128, 64, bilinear)
+        self.down4 = UnetEncoderBlock(512, 1024 // factor)
+        self.up1 = UnetDecoderBlock(1024, 512 // factor, bilinear)
+        self.up2 = UnetDecoderBlock(512, 256 // factor, bilinear)
+        self.up3 = UnetDecoderBlock(256, 128 // factor, bilinear)
+        self.up4 = UnetDecoderBlock(128, 64, bilinear)
         self.outc = OutputLayer(64, n_classes, final_act)
 
     def forward(self, x):
@@ -38,19 +38,19 @@ class UNet(nn.Module):
 
 
 class SkimUNet(UNet):
-    def __init__(self, n_channels, n_classes, bilinear=True, final_act=nn.Tanh()):
+    def __init__(self, n_channels, n_classes, bilinear=True, final_act=nn.Sigmoid()):
         super().__init__(n_channels, n_classes, bilinear, final_act)
 
         self.inc = DoubleConv(n_channels, 16)
-        self.down1 = UnetEncoder(16, 32)
-        self.down2 = UnetEncoder(32, 64)
-        self.down3 = UnetEncoder(64, 128)
+        self.down1 = UnetEncoderBlock(16, 32)
+        self.down2 = UnetEncoderBlock(32, 64)
+        self.down3 = UnetEncoderBlock(64, 128)
         factor = 2 if bilinear else 1
-        self.down4 = UnetEncoder(128, 256 // factor)
-        self.up1 = UnetDecoder(256, 128 // factor, bilinear)
-        self.up2 = UnetDecoder(128, 64 // factor, bilinear)
-        self.up3 = UnetDecoder(64, 32 // factor, bilinear)
-        self.up4 = UnetDecoder(32, 16, bilinear)
+        self.down4 = UnetEncoderBlock(128, 256 // factor)
+        self.up1 = UnetDecoderBlock(256, 128 // factor, bilinear)
+        self.up2 = UnetDecoderBlock(128, 64 // factor, bilinear)
+        self.up3 = UnetDecoderBlock(64, 32 // factor, bilinear)
+        self.up4 = UnetDecoderBlock(32, 16, bilinear)
         self.outc = OutputLayer(16, n_classes, final_act)
 
 
@@ -74,7 +74,7 @@ class DoubleConv(nn.Module):
         return self.double_conv(x)
 
 
-class UnetEncoder(nn.Module):
+class UnetEncoderBlock(nn.Module):
     """Downscaling with maxpool then double conv"""
 
     def __init__(self, in_channels, out_channels):
@@ -87,7 +87,7 @@ class UnetEncoder(nn.Module):
         return self.maxpool_conv(x)
 
 
-class UnetDecoder(nn.Module):
+class UnetDecoderBlock(nn.Module):
     """Upscaling then double conv"""
 
     def __init__(self, in_channels, out_channels, bilinear=True):
@@ -125,3 +125,38 @@ class OutputLayer(nn.Module):
 
     def forward(self, x):
         return self.activation(self.conv(x))
+
+
+class UnetEncoder(nn.Module):
+    def __init__(self, n_channels, bilinear=True, final_act=nn.Sigmoid()):
+        super().__init__()
+        self.inc = DoubleConv(n_channels, 16)
+        self.down1 = UnetEncoderBlock(16, 32)
+        self.down2 = UnetEncoderBlock(32, 64)
+        self.down3 = UnetEncoderBlock(64, 128)
+        factor = 2 if bilinear else 1
+        self.down4 = UnetEncoderBlock(128, 256 // factor)
+
+    def forward(self, X: torch.Tensor):
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        return [x1, x2, x3, x4, x5]
+
+
+class UnetDecoder(nn.Module):
+    def __init__(self, n_channels, bilinear=True, final_act=nn.Sigmoid()):
+        super().__init__()
+        self.up1 = UnetDecoderBlock(256, 128 // factor, bilinear)
+        self.up2 = UnetDecoderBlock(128, 64 // factor, bilinear)
+        self.up3 = UnetDecoderBlock(64, 32 // factor, bilinear)
+        self.up4 = UnetDecoderBlock(32, 16, bilinear)
+        self.outc = OutputLayer(16, n_classes, final_act)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = F.relu(self.up4(x, x1))
+        output = self.outc(x)
+        return output

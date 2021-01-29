@@ -3,6 +3,7 @@ from typing import Dict, List
 import torch
 import pytorch_lightning as pl
 import wandb
+import torchvision
 from torch import nn
 from torch.nn import functional as F
 
@@ -105,26 +106,29 @@ class AutoEncoder(pl.LightningModule):
         X, Y = batch
         pred_Y = self.forward(X).squeeze()
         loss = self.metric(pred_Y.squeeze(), Y.squeeze())
-        self.log("training_recon", loss)
+        self.logger.experiment.log({"training_recon": loss})
         return loss
 
     def validation_step(self, batch, batch_idx):
         X, Y = batch
         pred_Y = self.forward(X)
         loss = self.metric(pred_Y.squeeze(), Y.squeeze())
-        self.log("validation_recon", loss)
+        self.logger.experiment.log({"validation_recon": loss})
         input_image = X[0].cpu().detach()
         target_image = Y[0].cpu().detach()
         pred_image = pred_Y[0].cpu().detach()
-        self.logger.experiment.log(
-            {
-                "input_image": [wandb.Image(input_image, caption="Input")],
-                "target_image": [wandb.Image(target_image, caption="Target")],
-                "pred_image": [wandb.Image(pred_image, caption="Prediction")],
-            }
-        )
-        return loss
+        return (loss, input_image, target_image, pred_image)
 
+    def validation_epoch_end(self, outputs):
+        _, input_image, target_image, pred_image = outputs[-1]
+        image_size = input_image.size(-1)
+        compressed = torch.cat([input_image.view(1, 1, image_size, image_size),
+            target_image.view(1, 1, image_size, image_size),
+            pred_image.view(1, 1, image_size, image_size)], dim=0
+            )
+        grid = torchvision.utils.make_grid(compressed)
+        self.logger.experiment.log(
+                {"alacarte": [wandb.Image(grid, caption="Input/Target/Predicted")]})
 
 
 class UNetAutoEncoder(AutoEncoder):
