@@ -1,10 +1,12 @@
 img_size: 500
 lr: 1e-4
-batch_size: 16
+batch_size: 8
 test_seed: 1923
 train_seed: 42
 n_workers: 8
-dropout: 0.
-accumulate_grad_batches: 4
+accumulate_grad_batches: 8
 max_epochs: 200
 weight_decay: 1e-5
+start_features: 32
+num_segs: 9
+activation: prelu

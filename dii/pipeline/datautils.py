@@ -9,6 +9,29 @@ from torchvision.transforms import Compose, ToTensor
 from dii.pipeline.transforms import central_pipeline, projection_pipeline
 
 
+def generate_mask(images: np.ndarray, threshold: float = 0.3) -> np.ndarray:
+    """
+    Generate a mask for segmentation.
+
+    Parameters
+    ----------
+    images : np.ndarray
+        [description]
+    threshold : float, optional
+        [description], by default 0.3
+
+    Returns
+    -------
+    np.ndarray
+        [description]
+    """
+    img_size = images.shape[-1]
+    mask = np.zeros((img_size, img_size), dtype=int)
+    for index, image in enumerate(images):
+        mask[image >= threshold] = index + 1
+    return mask
+
+
 class H5Dataset(data.Dataset):
     def __init__(
         self,
@@ -80,7 +103,8 @@ class CompositeH5Dataset(H5Dataset):
         scale: float = 2.0,
         seed=None,
         indices=None,
-        max_composites: int = 6
+        max_composites: int = 6,
+        mask_threshold: float = 0.3
     ):
         """
         Inheriting from `H5Dataset`, this version is purely stochastic by generating
@@ -118,6 +142,7 @@ class CompositeH5Dataset(H5Dataset):
         else:
             self.indices = indices
         self.max_composites = max_composites
+        self.mask_threshold = mask_threshold
 
     def __len__(self):
         if self.indices is None:
@@ -164,7 +189,7 @@ class CompositeH5Dataset(H5Dataset):
             true = true.sum(axis=0)
         if projection.ndim == 3:
             # for the projection, generate a mask for segmentation later
-            mask = np.argmax(projection, axis=0).astype(int)
+            mask = generate_mask(projection, self.mask_threshold)
             projection = projection.sum(axis=0)
         else:
             mask = np.zeros_like(projection)

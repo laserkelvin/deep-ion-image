@@ -94,20 +94,33 @@ class DoubleConv(nn.Module):
 class UnetEncoderBlock(nn.Module):
     """Downscaling with maxpool then double conv"""
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, activation=None):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
             nn.MaxPool2d(2), DoubleConv(in_channels, out_channels)
         )
+        valid_activations = {
+            "relu": nn.ReLU(),
+            "leaky_relu": nn.LeakyReLU(0.3),
+            "prelu": nn.PReLU(),
+            "tanh": nn.Tanh()
+        }
+        if activation and activation in valid_activations:
+            self.activation = valid_activations.get(activation)
+        else:
+            self.activation = None
 
     def forward(self, x):
-        return self.maxpool_conv(x)
+        x = self.maxpool_conv(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
 
 
 class UnetDecoderBlock(nn.Module):
     """Upscaling then double conv"""
 
-    def __init__(self, in_channels, out_channels, bilinear=True):
+    def __init__(self, in_channels, out_channels, bilinear=True, activation=None):
         super().__init__()
 
         # if bilinear, use the normal convolutions to reduce the number of channels
@@ -119,6 +132,16 @@ class UnetDecoderBlock(nn.Module):
                 in_channels, in_channels // 2, kernel_size=2, stride=2
             )
             self.conv = DoubleConv(in_channels, out_channels)
+        valid_activations = {
+            "relu": nn.ReLU(),
+            "leaky_relu": nn.LeakyReLU(0.3),
+            "prelu": nn.PReLU(),
+            "tanh": nn.Tanh()
+        }
+        if activation and activation in valid_activations:
+            self.activation = valid_activations.get(activation)
+        else:
+            self.activation = None
 
     def forward(self, x1, x2):
         x1 = self.up(x1)
@@ -131,7 +154,10 @@ class UnetDecoderBlock(nn.Module):
         # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
         # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
         x = torch.cat([x2, x1], dim=1)
-        return self.conv(x)
+        x = self.conv(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
 
 
 class OutputLayer(nn.Module):
@@ -148,14 +174,14 @@ class OutputLayer(nn.Module):
 
 
 class UnetEncoder(nn.Module):
-    def __init__(self, n_channels, bilinear=True, final_act=nn.Sigmoid()):
+    def __init__(self, n_channels, start_features=16, bilinear=True, activation=None):
         super().__init__()
-        self.inc = DoubleConv(n_channels, 16)
-        self.down1 = UnetEncoderBlock(16, 32)
-        self.down2 = UnetEncoderBlock(32, 64)
-        self.down3 = UnetEncoderBlock(64, 128)
+        self.inc = DoubleConv(n_channels, start_features)
+        self.down1 = UnetEncoderBlock(start_features, start_features * 2, activation)
+        self.down2 = UnetEncoderBlock(start_features * 2, start_features * 4, activation)
+        self.down3 = UnetEncoderBlock(start_features * 4, start_features * 8, activation)
         factor = 2 if bilinear else 1
-        self.down4 = UnetEncoderBlock(128, 256 // factor)
+        self.down4 = UnetEncoderBlock(start_features * 8, (start_features * 16) // factor, activation)
 
     def forward(self, X: torch.Tensor):
         x1 = self.inc(X)
@@ -167,37 +193,16 @@ class UnetEncoder(nn.Module):
 
 
 class UnetDecoder(nn.Module):
-    def __init__(self, n_channels, bilinear=True, final_act=nn.Sigmoid()):
+    def __init__(self, n_channels, n_segs=9, start_features=16, bilinear=True, activation=None, final_act=nn.Sigmoid()):
         super().__init__()
         factor = 2 if bilinear else 1
-        self.up1 = UnetDecoderBlock(256, 128 // factor, bilinear)
-        self.up2 = UnetDecoderBlock(128, 64 // factor, bilinear)
-        self.up3 = UnetDecoderBlock(64, 32 // factor, bilinear)
-        self.up4 = UnetDecoderBlock(32, 16, bilinear)
-        self.outc = OutputLayer(16, n_channels, final_act)
-
-    def forward(self, outputs):
-        # unpack the residuals from encoder
-        x1, x2, x3, x4, x5 = outputs
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = F.relu(self.up4(x, x1))
-        output = self.outc(x)
-        return output
-
-
-class UnetDecoder(nn.Module):
-    def __init__(self, n_channels, n_segs=9, bilinear=True, final_act=nn.Sigmoid()):
-        super().__init__()
-        factor = 2 if bilinear else 1
-        self.up1 = UnetDecoderBlock(256, 128 // factor, bilinear)
-        self.up2 = UnetDecoderBlock(128, 64 // factor, bilinear)
-        self.up3 = UnetDecoderBlock(64, 32 // factor, bilinear)
-        self.up4 = UnetDecoderBlock(32, 16, bilinear)
-        self.outc = OutputLayer(16, n_channels, final_act)
+        self.up1 = UnetDecoderBlock(start_features * 16, (start_features * 8) // factor, bilinear, activation)
+        self.up2 = UnetDecoderBlock(start_features * 8, (start_features * 4) // factor, bilinear, activation)
+        self.up3 = UnetDecoderBlock(start_features * 4, (start_features * 2) // factor, bilinear, activation)
+        self.up4 = UnetDecoderBlock(start_features * 2, start_features, bilinear, activation=nn.ReLU())
+        self.outc = OutputLayer(n_segs + 1, n_channels, None)
         # this layer will generate masks for each image
-        self.seg = OutputLayer(16, n_segs, None)
+        self.seg = OutputLayer(start_features, n_segs + 1, None)
 
     def forward(self, outputs):
         # unpack the residuals from encoder
@@ -206,6 +211,6 @@ class UnetDecoder(nn.Module):
         x = self.up2(x, x3)
         x = self.up3(x, x2)
         x = F.relu(self.up4(x, x1))
-        output = self.outc(x)
         mask = self.seg(x)
+        output = self.outc(mask)
         return output, mask

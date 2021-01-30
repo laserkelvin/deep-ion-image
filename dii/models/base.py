@@ -1,4 +1,4 @@
-from dii.models.resnet import resnet18_encoder
+
 from typing import Dict, List
 
 import torch
@@ -11,6 +11,7 @@ from torch.nn import functional as F
 from dii.models import layers
 from dii.models.unet import SkimUNet, UnetEncoder, UnetDecoder
 from dii.models.resnet import resnet18_encoder, resnet18_decoder
+from pl_bolts.models.vision import PixelCNN
 
 
 def initialize_weights(m):
@@ -83,7 +84,6 @@ class UpsampleDecoder(nn.Module):
         return output
 
 
-
 class AutoEncoder(pl.LightningModule):
     def __init__(self, encoder, decoder, lr=1e-3, weight_decay=0.0, **kwargs):
         super().__init__()
@@ -92,7 +92,7 @@ class AutoEncoder(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.apply(initialize_weights)
-        self.metric = nn.BCELoss()
+        self.metric = nn.BCEWithLogitsLoss()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -104,33 +104,43 @@ class AutoEncoder(pl.LightningModule):
         )
         return optimizer
 
-    def training_step(self, batch, batch_idx):
+    def step(self, batch, batch_idx):
         X, Y, _ = batch
-        pred_Y = self.forward(X).squeeze()
-        loss = self.metric(pred_Y.squeeze(), Y.squeeze())
-        self.logger.experiment.log({"training_recon": loss})
+        pred_Y = self(X).squeeze()
+        loss = self.metric(pred_Y, Y.squeeze())
+        # get some images
+        images = list()
+        for tensor in [X, Y, pred_Y]:
+            images.append(
+                tensor[0].cpu().detach()
+            )
+        logs = {
+            "recon_loss": loss,
+            "samples": images
+            }
+        return loss, logs
+
+    def training_step(self, batch, batch_idx):
+        loss, logs = self.step(batch, batch_idx)
+        self.log_dict({f"train_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=False, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        X, Y, _ = batch
-        pred_Y = self.forward(X)
-        loss = self.metric(pred_Y.squeeze(), Y.squeeze())
-        self.logger.experiment.log({"validation_recon": loss})
-        input_image = X[0].cpu().detach()
-        target_image = Y[0].cpu().detach()
-        pred_image = pred_Y[0].cpu().detach()
-        return (loss, input_image, target_image, pred_image)
+        loss, logs = self.step(batch, batch_idx)
+        self.log_dict({f"val_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=False, on_epoch=True)
+        return (loss, logs)
 
     def validation_epoch_end(self, outputs):
-        _, input_image, target_image, pred_image = outputs[-1]
-        image_size = input_image.size(-1)
-        compressed = torch.cat([input_image.view(1, 1, image_size, image_size),
-            target_image.view(1, 1, image_size, image_size),
-            pred_image.view(1, 1, image_size, image_size)], dim=0
-            )
-        grid = torchvision.utils.make_grid(compressed)
+        loss, logs = outputs[-1]
+        images = logs.get("samples")
+        x, y, pred_y = images
         self.logger.experiment.log(
-                {"alacarte": [wandb.Image(grid, caption="Input/Target/Predicted")]})
+            {
+                "target": wandb.Image(y.float()),
+                "predicted": wandb.Image(pred_y.float()),
+                "input": wandb.Image(x.float())
+            }
+        )
 
 
 class UNetAutoEncoder(AutoEncoder):
@@ -147,10 +157,10 @@ class UNetAutoEncoder(AutoEncoder):
 
 
 class UNetSegAE(AutoEncoder):
-    def __init__(self, n_segs: int = 9, lr: float = 1e-3, bilinear: bool = True, **kwargs):
+    def __init__(self, num_segs: int = 9, start_features: float = 16, lr: float = 1e-3, bilinear: bool = True, activation=None, **kwargs):
         super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
-        self.encoder = UnetEncoder(1, bilinear)
-        self.decoder = UnetDecoder(1, n_segs, bilinear=bilinear)
+        self.encoder = UnetEncoder(1, start_features, bilinear, activation)
+        self.decoder = UnetDecoder(1, num_segs, start_features, bilinear, activation)
         self.apply(initialize_weights)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -181,15 +191,15 @@ class UNetSegAE(AutoEncoder):
         }
         return loss, logs
 
-    def training_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"train_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=True, on_epoch=False)
-        return loss
+    # def training_step(self, batch, batch_idx):
+    #     loss, logs = self.step(batch, batch_idx)
+    #     self.log_dict({f"train_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=True, on_epoch=False)
+    #     return loss
 
-    def validation_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"val_{k}": v for k, v in logs.items() if "samples" not in k})
-        return (loss, logs)
+    # def validation_step(self, batch, batch_idx):
+    #     loss, logs = self.step(batch, batch_idx)
+    #     self.log_dict({f"val_{k}": v for k, v in logs.items() if "samples" not in k})
+    #     return (loss, logs)
     
     def validation_epoch_end(self, outputs):
         loss, logs = outputs[-1]
@@ -200,11 +210,11 @@ class UNetSegAE(AutoEncoder):
         mask = mask.numpy()
         self.logger.experiment.log(
             {
-                "target": wandb.Image(y, masks={
+                "target": wandb.Image(y.float(), masks={
                     "ground_truth": {"mask_data": mask},
                     "prediction": {"mask_data": pred_mask}
                     }),
-                "predicted": wandb.Image(pred_y, masks={
+                "predicted": wandb.Image(pred_y.float(), masks={
                     "ground_truth": {"mask_data": mask},
                     "prediction": {"mask_data": pred_mask}
                     }),
@@ -458,3 +468,12 @@ class PLVAE(pl.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
+
+
+class PixelCNNAutoEncoder(AutoEncoder):
+    def __init__(self, input_channels: int = 1, latent_dim: int = 256, num_blocks: int = 5, lr=1e-3, **kwargs):
+        super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
+        self.model = PixelCNN(input_channels, latent_dim, num_blocks)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return self.model(X)
