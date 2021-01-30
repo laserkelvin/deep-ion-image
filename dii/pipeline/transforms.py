@@ -92,13 +92,23 @@ projection_pipeline = tf.Compose(
     [
         #        AbelProjection(),  # Perform Abel transform to get 3D distribution
         #BlurImage(),
-        ProcessNumpyArray(),
-        tf.ToPILImage(),
-        tf.RandomAffine(
-            0.0, translate=(0.05, 0.05), resample=Image.BICUBIC
-        ),  # we move the 3D image around
+        #ProcessNumpyArray(),
+        #tf.ToPILImage(),
+        #tf.RandomAffine(
+        #    0.0, translate=(0.05, 0.05), resample=Image.BICUBIC
+        #),  # we move the 3D image around
         tf.ToTensor(),
         # nn.Dropout(0.2),   # This adds some noise to the 3D image
+        Normalize()
+    ]
+)
+
+mini_forward_pipeline = tf.Compose(
+    [
+        ProcessNumpyArray(),
+        tf.ToPILImage(),
+        tf.Resize((256, 256)),
+        tf.ToTensor(),
         Normalize()
     ]
 )

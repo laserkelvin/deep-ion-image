@@ -10,10 +10,7 @@ class UNet(nn.Module):
         self.n_classes = n_classes
         self.bilinear = bilinear
 
-        self.inc = DoubleConv(n_channels, 64)
-        self.down1 = UnetEncoderBlock(64, 128)
-        self.down2 = UnetEncoderBlock(128, 256)
-        self.down3 = UnetEncoderBlock(256, 512)
+        self.encoder = self._make_encoder(n_channels, bilinear)
         factor = 2 if bilinear else 1
         self.down4 = UnetEncoderBlock(512, 1024 // factor)
         self.up1 = UnetDecoderBlock(1024, 512 // factor, bilinear)
@@ -21,6 +18,26 @@ class UNet(nn.Module):
         self.up3 = UnetDecoderBlock(256, 128 // factor, bilinear)
         self.up4 = UnetDecoderBlock(128, 64, bilinear)
         self.outc = OutputLayer(64, n_classes, final_act)
+
+    @staticmethod
+    def _make_encoder(in_channels: int, bilinear: bool = True) -> nn.Module:
+        chan_sizes = [in_channels, 64, 128, 256, 512]
+        factor = 2 if bilinear else 1
+        chan_sizes.append(1024 // factor)
+        modules = list()
+        for index, chan in enumerate(chan_sizes):
+            if index == 0:
+                layer = DoubleConv
+            else:
+                layer = UnetEncoderBlock
+            try:
+                modules.append(layer(chan, chan_sizes[index + 1]))
+            except IndexError:
+                pass
+        encoder = nn.Sequential(
+            modules
+        )
+        return encoder
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -124,7 +141,10 @@ class OutputLayer(nn.Module):
         self.activation = activation
 
     def forward(self, x):
-        return self.activation(self.conv(x))
+        output = self.conv(x)
+        if self.activation:
+            output = self.activation(output)
+        return output
 
 
 class UnetEncoder(nn.Module):
@@ -138,7 +158,7 @@ class UnetEncoder(nn.Module):
         self.down4 = UnetEncoderBlock(128, 256 // factor)
 
     def forward(self, X: torch.Tensor):
-        x1 = self.inc(x)
+        x1 = self.inc(X)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
@@ -149,14 +169,43 @@ class UnetEncoder(nn.Module):
 class UnetDecoder(nn.Module):
     def __init__(self, n_channels, bilinear=True, final_act=nn.Sigmoid()):
         super().__init__()
+        factor = 2 if bilinear else 1
         self.up1 = UnetDecoderBlock(256, 128 // factor, bilinear)
         self.up2 = UnetDecoderBlock(128, 64 // factor, bilinear)
         self.up3 = UnetDecoderBlock(64, 32 // factor, bilinear)
         self.up4 = UnetDecoderBlock(32, 16, bilinear)
-        self.outc = OutputLayer(16, n_classes, final_act)
+        self.outc = OutputLayer(16, n_channels, final_act)
+
+    def forward(self, outputs):
+        # unpack the residuals from encoder
+        x1, x2, x3, x4, x5 = outputs
         x = self.up1(x5, x4)
         x = self.up2(x, x3)
         x = self.up3(x, x2)
         x = F.relu(self.up4(x, x1))
         output = self.outc(x)
         return output
+
+
+class UnetDecoder(nn.Module):
+    def __init__(self, n_channels, n_segs=9, bilinear=True, final_act=nn.Sigmoid()):
+        super().__init__()
+        factor = 2 if bilinear else 1
+        self.up1 = UnetDecoderBlock(256, 128 // factor, bilinear)
+        self.up2 = UnetDecoderBlock(128, 64 // factor, bilinear)
+        self.up3 = UnetDecoderBlock(64, 32 // factor, bilinear)
+        self.up4 = UnetDecoderBlock(32, 16, bilinear)
+        self.outc = OutputLayer(16, n_channels, final_act)
+        # this layer will generate masks for each image
+        self.seg = OutputLayer(16, n_segs, None)
+
+    def forward(self, outputs):
+        # unpack the residuals from encoder
+        x1, x2, x3, x4, x5 = outputs
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = F.relu(self.up4(x, x1))
+        output = self.outc(x)
+        mask = self.seg(x)
+        return output, mask

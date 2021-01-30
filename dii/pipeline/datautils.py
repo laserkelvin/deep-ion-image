@@ -46,7 +46,7 @@ class H5Dataset(data.Dataset):
                 self.transform = Compose(transform)
             else:
                 self.transform = transform
-        if not transform:
+        if not target_transform:
             self.target_transform = central_pipeline
         else:
             if type(target_transform) == list or type(target_transform) == tuple:
@@ -80,6 +80,7 @@ class CompositeH5Dataset(H5Dataset):
         scale: float = 2.0,
         seed=None,
         indices=None,
+        max_composites: int = 6
     ):
         """
         Inheriting from `H5Dataset`, this version is purely stochastic by generating
@@ -106,7 +107,7 @@ class CompositeH5Dataset(H5Dataset):
         seed : [type], optional
             Random seed to use for the image generation, by default None
         """
-        super().__init__(path, key, transform)
+        super().__init__(path, key, transform, target_transform)
         self.seed = seed
         self.scale = scale
         self.indices = None
@@ -116,6 +117,7 @@ class CompositeH5Dataset(H5Dataset):
             self.indices = np.arange(len(self))
         else:
             self.indices = indices
+        self.max_composites = max_composites
 
     def __len__(self):
         if self.indices is None:
@@ -148,6 +150,8 @@ class CompositeH5Dataset(H5Dataset):
         # get the number of images to compose with, sampled from an exponential
         # decay distribution
         n_composites = int(np.random.exponential(self.scale) + 1)
+        if n_composites > self.max_composites:
+            n_composites = self.max_composites
         # choose the images randomly
         chosen = np.random.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
@@ -159,14 +163,18 @@ class CompositeH5Dataset(H5Dataset):
         if true.ndim == 3:
             true = true.sum(axis=0)
         if projection.ndim == 3:
+            # for the projection, generate a mask for segmentation later
+            mask = np.argmax(projection, axis=0).astype(int)
             projection = projection.sum(axis=0)
+        else:
+            mask = np.zeros_like(projection)
         # if we have a compose pipeline defined, run it
         if self.target_transform:
             true = self.target_transform(true)
         # Y is the central slice, whereas X is the projection, which is
         # appropriate for the direction we're going
         projection = self.transform(projection)
-        return (projection, true)
+        return (projection, true, mask)
 
 
 class SelectiveComposite(H5Dataset):

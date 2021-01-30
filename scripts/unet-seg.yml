@@ -1,0 +1,10 @@
+img_size: 500
+lr: 1e-4
+batch_size: 16
+test_seed: 1923
+train_seed: 42
+n_workers: 8
+dropout: 0.
+accumulate_grad_batches: 4
+max_epochs: 200
+weight_decay: 1e-5

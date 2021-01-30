@@ -1,3 +1,4 @@
+from dii.models.resnet import resnet18_encoder
 from typing import Dict, List
 
 import torch
@@ -8,7 +9,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from dii.models import layers
-from dii.models.unet import UNet, SkimUNet
+from dii.models.unet import SkimUNet, UnetEncoder, UnetDecoder
+from dii.models.resnet import resnet18_encoder, resnet18_decoder
 
 
 def initialize_weights(m):
@@ -103,14 +105,14 @@ class AutoEncoder(pl.LightningModule):
         return optimizer
 
     def training_step(self, batch, batch_idx):
-        X, Y = batch
+        X, Y, _ = batch
         pred_Y = self.forward(X).squeeze()
         loss = self.metric(pred_Y.squeeze(), Y.squeeze())
         self.logger.experiment.log({"training_recon": loss})
         return loss
 
     def validation_step(self, batch, batch_idx):
-        X, Y = batch
+        X, Y, _ = batch
         pred_Y = self.forward(X)
         loss = self.metric(pred_Y.squeeze(), Y.squeeze())
         self.logger.experiment.log({"validation_recon": loss})
@@ -132,17 +134,82 @@ class AutoEncoder(pl.LightningModule):
 
 
 class UNetAutoEncoder(AutoEncoder):
-    def __init__(self, lr=1e-3, skim=True, **kwargs):
+    def __init__(self, lr=1e-3, bilinear=True, **kwargs):
         super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
-        if skim:
-            self.model = SkimUNet(1, 1)
-        else:
-            self.model = UNet(1, 1)
+        self.encoder = UnetEncoder(1, bilinear)
+        self.decoder = UnetDecoder(1, 1, bilinear)
         self.apply(initialize_weights)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        return self.model(X)
+        encoding = self.encoder(X)
+        output, mask = self.decoder(encoding)
+        return output
 
+
+class UNetSegAE(AutoEncoder):
+    def __init__(self, n_segs: int = 9, lr: float = 1e-3, bilinear: bool = True, **kwargs):
+        super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
+        self.encoder = UnetEncoder(1, bilinear)
+        self.decoder = UnetDecoder(1, n_segs, bilinear=bilinear)
+        self.apply(initialize_weights)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        encoding = self.encoder(X)
+        output, mask = self.decoder(encoding)
+        return (output, mask)
+
+    def step(self, batch, batch_idx):
+        X, Y, mask = batch
+        encoding = self.encoder(X)
+        pred_Y, pred_mask = self.decoder(encoding)
+        
+        # calculate losses
+        recon_loss = self.metric(pred_Y, Y)
+        seg_loss = F.cross_entropy(pred_mask, mask)
+        loss = recon_loss + seg_loss
+        # get some images
+        images = list()
+        for tensor in [X, Y, pred_Y, mask, pred_mask]:
+            images.append(
+                tensor[0].cpu().detach()
+            )
+        logs = {
+            "recon_loss": recon_loss,
+            "seg_loss": seg_loss,
+            "loss": loss,
+            "samples": images
+        }
+        return loss, logs
+
+    def training_step(self, batch, batch_idx):
+        loss, logs = self.step(batch, batch_idx)
+        self.log_dict({f"train_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=True, on_epoch=False)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        loss, logs = self.step(batch, batch_idx)
+        self.log_dict({f"val_{k}": v for k, v in logs.items() if "samples" not in k})
+        return (loss, logs)
+    
+    def validation_epoch_end(self, outputs):
+        loss, logs = outputs[-1]
+        images = logs.get("samples")
+        x, y, pred_y, mask, pred_mask = images
+        # just get the classes
+        pred_mask = pred_mask.argmax(0).numpy()
+        mask = mask.numpy()
+        self.logger.experiment.log(
+            {
+                "target": wandb.Image(y, masks={
+                    "ground_truth": {"mask_data": mask},
+                    "prediction": {"mask_data": pred_mask}
+                    }),
+                "predicted": wandb.Image(pred_y, masks={
+                    "ground_truth": {"mask_data": mask},
+                    "prediction": {"mask_data": pred_mask}
+                    }),
+            }
+        )
 
 class VAE(AutoEncoder):
     def __init__(
@@ -274,3 +341,120 @@ class VAE(AutoEncoder):
             }
         )
         return {"validation_loss": loss_dict["loss"]}
+
+
+class PLVAE(pl.LightningModule):
+    """
+    Standard VAE with Gaussian Prior and approx posterior.
+    Model is available pretrained on different datasets:
+    Example::
+        # not pretrained
+        vae = VAE()
+        # pretrained on cifar10
+        vae = VAE.from_pretrained('cifar10-resnet18')
+        # pretrained on stl10
+        vae = VAE.from_pretrained('stl10-resnet18')
+    """
+    def __init__(
+        self,
+        input_height: int,
+        first_conv: bool = False,
+        maxpool1: bool = False,
+        enc_out_dim: int = 512,
+        kl_coeff: float = 0.1,
+        latent_dim: int = 256,
+        lr: float = 1e-4,
+        **kwargs
+    ):
+        """
+        Args:
+            input_height: height of the images
+            enc_type: option between resnet18 or resnet50
+            first_conv: use standard kernel_size 7, stride 2 at start or
+                replace it with kernel_size 3, stride 1 conv
+            maxpool1: use standard maxpool to reduce spatial dim of feat by a factor of 2
+            enc_out_dim: set according to the out_channel count of
+                encoder used (512 for resnet18, 2048 for resnet50)
+            kl_coeff: coefficient for kl term of the loss
+            latent_dim: dim of latent space
+            lr: learning rate for Adam
+        """
+        super().__init__()
+
+        self.save_hyperparameters()
+
+        self.lr = lr
+        self.kl_coeff = kl_coeff
+        self.enc_out_dim = enc_out_dim
+        self.latent_dim = latent_dim
+        self.input_height = input_height
+        
+        self.encoder = resnet18_encoder(first_conv, maxpool1)
+        self.decoder = resnet18_decoder(self.latent_dim, self.input_height, first_conv, maxpool1)
+
+        self.fc_mu = nn.Linear(self.enc_out_dim, self.latent_dim)
+        self.fc_var = nn.Linear(self.enc_out_dim, self.latent_dim)
+
+    def forward(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        log_var = self.fc_var(x)
+        p, q, z = self.sample(mu, log_var)
+        return self.decoder(z)
+
+    def _run_step(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        log_var = self.fc_var(x)
+        p, q, z = self.sample(mu, log_var)
+        return z, self.decoder(z), p, q
+
+    def sample(self, mu, log_var):
+        std = torch.exp(log_var / 2)
+        p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
+        q = torch.distributions.Normal(mu, std)
+        z = q.rsample()
+        return p, q, z
+
+    def step(self, batch, batch_idx):
+        x, y = batch
+        z, x_hat, p, q = self._run_step(x)
+
+        recon_loss = F.mse_loss(x_hat, x, reduction='mean')
+
+        log_qz = q.log_prob(z)
+        log_pz = p.log_prob(z)
+
+        kl = log_qz - log_pz
+        kl = kl.mean()
+        kl *= self.kl_coeff
+
+        loss = kl + recon_loss
+        
+        # do some image logging as well
+        # img_size = x.size(-1)
+        # input_img = x[0].cpu().detach().view(1, img_size, img_size)
+        # pred_img = x_hat[0].cpu().detach().view(1, img_size, img_size)
+        # target_img = y[0].cpu().detach().view(1, img_size, img_size)
+        # compressed = torch.cat([input_img, target_img, pred_img], dim=1
+        #     )
+        # grid = torchvision.utils.make_grid(compressed)
+        logs = {
+            "recon_loss": recon_loss,
+            "kl": kl,
+            "loss": loss,
+        }
+        return loss, logs
+
+    def training_step(self, batch, batch_idx):
+        loss, logs = self.step(batch, batch_idx)
+        self.log_dict({f"train_{k}": v for k, v in logs.items() if "images" not in k}, on_step=True, on_epoch=False)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        loss, logs = self.step(batch, batch_idx)
+        self.log_dict({f"val_{k}": v for k, v in logs.items() if "images" not in k})
+        return loss
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
