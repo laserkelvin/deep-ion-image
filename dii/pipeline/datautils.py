@@ -9,7 +9,7 @@ from torchvision.transforms import Compose, ToTensor
 from dii.pipeline.transforms import central_pipeline, projection_pipeline
 
 
-def generate_mask(images: np.ndarray, threshold: float = 0.3) -> np.ndarray:
+def generate_mask(images: np.ndarray, centers: np.ndarray, threshold: float = 0.4, num_classes: int = 9) -> np.ndarray:
     """
     Generate a mask for segmentation.
 
@@ -26,9 +26,12 @@ def generate_mask(images: np.ndarray, threshold: float = 0.3) -> np.ndarray:
         [description]
     """
     img_size = images.shape[-1]
+    label_map = np.linspace(0., img_size // 2, num_classes)
     mask = np.zeros((img_size, img_size), dtype=int)
     for index, image in enumerate(images):
-        mask[image >= threshold] = index + 1
+        center = centers[index]
+        target_label = np.argmin(np.abs(center - label_map))
+        mask[image >= threshold] = target_label + 1
     return mask
 
 
@@ -172,6 +175,7 @@ class CompositeH5Dataset(H5Dataset):
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, "r")[self.key]
         self.target_dataset = h5py.File(self.file_path, "r")["true"]
+        distances = h5py.File(self.file_path, "r")["centers"]
         # get the number of images to compose with, sampled from an exponential
         # decay distribution
         n_composites = int(np.random.exponential(self.scale) + 1)
@@ -184,12 +188,13 @@ class CompositeH5Dataset(H5Dataset):
         # get the true central image and projections
         true = np.array(self.target_dataset[chosen])
         projection = np.array(self.dataset[chosen])
+        centers = np.array(distances[chosen])
         # if we have multiple images, flatten to a single composite
         if true.ndim == 3:
             true = true.sum(axis=0)
         if projection.ndim == 3:
             # for the projection, generate a mask for segmentation later
-            mask = generate_mask(projection, self.mask_threshold)
+            mask = generate_mask(projection, centers, self.mask_threshold, num_classes=self.max_composites)
             projection = projection.sum(axis=0)
         else:
             mask = np.zeros_like(projection)

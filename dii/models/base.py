@@ -18,7 +18,7 @@ def initialize_weights(m):
     for name, parameter in m.named_parameters():
         if "norm" not in name:
             try:
-                nn.init.kaiming_uniform_(parameter, nonlinearity="leaky_relu")
+                nn.init.xavier_uniform_(parameter)
             except:
                 pass
 
@@ -82,6 +82,53 @@ class UpsampleDecoder(nn.Module):
     def forward(self, X: torch.Tensor):
         output = self.layers(X)
         return output
+
+
+class Encoder(nn.Module):
+    def __init__(self, in_channels: int, latent_dim: int):
+        super().__init__()
+        sizes = [8, 16, 32, 64, 128,]
+        for index, out_channels in enumerate(sizes):
+            if index == 0:
+                model = [
+                    layers.ResidualBlock(in_channels, out_channels, pool=2, use_1x1conv=True)
+                ]
+            else:
+                model.append(
+                    layers.ResidualBlock(sizes[index - 1], out_channels, pool=2, use_1x1conv=True)
+                )
+        model.extend([nn.Flatten(), nn.Linear(128 * 4 * 4, latent_dim)])
+        self.model = nn.Sequential(*model)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return self.model(X)
+
+
+class Decoder(nn.Module):
+    def __init__(self, latent_dim: int, out_channels: int):
+        super().__init__()
+        sizes = [128, 64, 32, 16, 8, out_channels]
+        self.fc = nn.Linear(latent_dim, sizes[0] * 4 * 4)
+        model = list()
+        for index, out_channels in enumerate(sizes):
+            if index == 0:
+                pass
+            # no activation for the last layer
+            elif index == len(sizes):
+                model.append(layers.DecoderBlock(
+                    sizes[index - 1], out_channels, 3, upsample_size=2, activation=None
+                ))
+            else:
+                model.append(
+                    layers.DecoderBlock(
+                        sizes[index - 1], out_channels, 3, upsample_size=2,
+                    )
+                )
+        self.model = nn.Sequential(*model)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        output = self.fc(X).view(-1, 128, 4, 4)
+        return self.model(output)
 
 
 class AutoEncoder(pl.LightningModule):
@@ -210,6 +257,10 @@ class UNetSegAE(AutoEncoder):
         mask = mask.numpy()
         self.logger.experiment.log(
             {
+                "input": wandb.Image(x.float(), masks={
+                    "ground_truth": {"mask_data": mask},
+                    "prediction": {"mask_data": pred_mask}
+                    }),
                 "target": wandb.Image(y.float(), masks={
                     "ground_truth": {"mask_data": mask},
                     "prediction": {"mask_data": pred_mask}
@@ -227,130 +278,77 @@ class VAE(AutoEncoder):
         encoder,
         decoder,
         beta=4,
-        encoding_imgsize=8,
-        encoding_filters=72,
         latent_dim=64,
+        z_dim=64,
         lr=0.001,
         **kwargs
     ):
         super().__init__(encoder, decoder, lr=lr, **kwargs)
-        self.encoding_imgsize = encoding_imgsize
-        self.encoding_dim = (encoding_imgsize ** 2) * encoding_filters
-        self.fc_mu = nn.Linear(self.encoding_dim, latent_dim)
-        self.fc_logvar = nn.Linear(self.encoding_dim, latent_dim)
-        self.decoder_input = nn.Sequential(
-            nn.Linear(latent_dim, self.encoding_dim), nn.LeakyReLU(0.3, inplace=True)
-        )
+        self.fc_mu = nn.Linear(latent_dim, z_dim)
+        self.fc_logvar = nn.Linear(latent_dim, z_dim)
+        # nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
+        # nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
         self.beta = beta
         self.latent_dim = latent_dim
-        self.encoding_filters = encoding_filters
-        self.metric = nn.BCELoss()
         self.apply(initialize_weights)
 
-    def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
-        """
-        Will a single z be enough ti compute the expectation
-        for the loss??
-        :param mu: (Tensor) Mean of the latent Gaussian
-        :param logvar: (Tensor) Standard deviation of the latent Gaussian
-        :return:
-        """
-        std = torch.exp(0.5 * log_var)
-        eps = torch.randn_like(log_var)
-        return std * eps + mu
+    def _run_step(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        log_var = self.fc_logvar(x)
+        p, q, z = self.sample(mu, log_var)
+        return z, self.decoder(z), p, q
 
-    def encode(self, X: torch.Tensor) -> List[torch.Tensor]:
-        """
-        Generate an encoding
+    def sample(self, mu, log_var):
+        std = torch.exp(log_var / 2)
+        p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
+        q = torch.distributions.Normal(mu, std)
+        z = q.rsample()
+        return p, q, z
 
-        Parameters
-        ----------
-        input : Tensor
-            [description]
+    def step(self, batch, batch_idx):
+        X, Y, _ = batch
+        z, pred_Y, p, q = self._run_step(X)
 
-        Returns
-        -------
-        List[Tensor]
-            [description]
-        """
-        # get batch size for flattening later
-        batch_size = X.size(0)
-        # run through encoder model, and flatten for linear layer
-        output = self.encoder(X).view(batch_size, -1)
-        # Split the result into mu and var components
-        # of the latent Gaussian distribution
-        mu = self.fc_mu(output)
-        # log_var is forced to prefer negative (small) values
-        log_var = -F.leaky_relu(self.fc_logvar(output), 0.5)
-
-        return [mu, log_var]
-
-    def decode(self, z: torch.Tensor) -> torch.Tensor:
-        batch_size = z.size(0)
-        output = self.decoder_input(z).view(
-            batch_size,
-            self.encoding_filters,
-            self.encoding_imgsize,
-            self.encoding_imgsize,
-        )
-        # reshape the decoder input back into image dimensions
-        output = self.decoder(output)
-        return output
-
-    def loss_function(
-        self,
-        pred_Y: torch.Tensor,
-        Y: torch.Tensor,
-        mu: torch.Tensor,
-        log_var: torch.Tensor,
-    ) -> dict:
-        batch_size = Y.size(0)
         recon_loss = self.metric(pred_Y, Y)
-        kld_loss = torch.mean(
-            -0.5 * torch.sum(1 + log_var - mu ** 2 - log_var.exp(), dim=1), dim=0
-        )
-        # at the limit of beta=1, we have regular VAE
-        loss = recon_loss + self.beta * batch_size * kld_loss
-        return {"loss": loss, "reconstruction_loss": recon_loss, "kl_div": kld_loss}
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        mu, log_var = self.encode(X)
-        z = self.reparameterize(mu, log_var)
-        output = self.decode(z).squeeze()
-        return output
+        images = list()
+        for tensor in [X, Y, pred_Y]:
+            images.append(
+                tensor[0].cpu().detach()
+            )
 
-    def training_step(self, batch, batch_idx) -> dict:
-        X, Y = batch
-        mu, log_var = self.encode(X)
-        z = self.reparameterize(mu, log_var)
-        pred_Y = self.decode(z)
-        loss_dict = self.loss_function(pred_Y.squeeze(), Y.squeeze(), mu, log_var)
-        self.log("training_total", loss_dict.get("loss"))
-        self.log("training_recon", loss_dict.get("reconstruction_loss"))
-        self.log("training_kl", loss_dict.get("kl_div"))
-        return {"loss": loss_dict["loss"]}
+        log_qz = q.log_prob(z)
+        log_pz = p.log_prob(z)
 
-    def validation_step(self, batch, batch_idx):
-        X, Y = batch
-        mu, log_var = self.encode(X)
-        z = self.reparameterize(mu, log_var)
-        pred_Y = self.decode(z)
-        loss_dict = self.loss_function(pred_Y.squeeze(), Y.squeeze(), mu, log_var)
-        self.log("validation_total", loss_dict.get("loss"))
-        self.log("validation_recon", loss_dict.get("reconstruction_loss"))
-        self.log("validation_kl", loss_dict.get("kl_div"))
-        # sample images for visual checking
-        input_image = X[0].cpu().detach()
-        target_image = Y[0].cpu().detach()
-        pred_image = pred_Y[0].cpu().detach()
-        self.logger.experiment.log(
-            {
-                "input_image": [wandb.Image(input_image, caption="Input")],
-                "target_image": [wandb.Image(target_image, caption="Target")],
-                "pred_image": [wandb.Image(pred_image, caption="Prediction")],
-            }
-        )
-        return {"validation_loss": loss_dict["loss"]}
+        kl = log_qz - log_pz
+        kl = kl.mean()
+        kl *= self.beta
+
+        loss = kl + recon_loss
+        
+        # do some image logging as well
+        # img_size = x.size(-1)
+        # input_img = x[0].cpu().detach().view(1, img_size, img_size)
+        # pred_img = x_hat[0].cpu().detach().view(1, img_size, img_size)
+        # target_img = y[0].cpu().detach().view(1, img_size, img_size)
+        # compressed = torch.cat([input_img, target_img, pred_img], dim=1
+        #     )
+        # grid = torchvision.utils.make_grid(compressed)
+        logs = {
+            "recon_loss": recon_loss,
+            "kl": kl,
+            "loss": loss,
+            "samples": images
+        }
+        return loss, logs
+
+    def forward(self, x):
+        x = self.encoder(x)
+        mu = self.fc_mu(x)
+        log_var = self.fc_var(x)
+        p, q, z = self.sample(mu, log_var)
+        return self.decoder(z)
 
 
 class PLVAE(pl.LightningModule):
@@ -474,6 +472,7 @@ class PixelCNNAutoEncoder(AutoEncoder):
     def __init__(self, input_channels: int = 1, latent_dim: int = 256, num_blocks: int = 5, lr=1e-3, **kwargs):
         super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
         self.model = PixelCNN(input_channels, latent_dim, num_blocks)
+        self.metric = nn.MSELoss()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.model(X)

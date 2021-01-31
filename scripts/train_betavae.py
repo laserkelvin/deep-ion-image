@@ -6,7 +6,7 @@ import wandb
 from torch.utils.data import DataLoader
 
 from dii.pipeline.datautils import CompositeH5Dataset
-from dii.models.base import VAE, BaseEncoder, BaseDecoder
+from dii.models.base import VAE, Encoder, Decoder
 from dii.utils import checkpoint_callback, load_yaml
 
 config = load_yaml("betavae.yml")
@@ -16,7 +16,7 @@ BATCH_SIZE = config["batch_size"]
 TRAIN_SEED = np.random.seed(config["train_seed"])
 TEST_SEED = np.random.seed(config["test_seed"])
 
-GRAD_CLIP = config.get("gradient_clip_val", 0.)
+GRAD_CLIP = config.get("gradient_clip_val", 0.0)
 
 DROPOUT = config["dropout"]
 
@@ -26,22 +26,33 @@ else:
     GPU = 0
 
 
-vae = VAE(BaseEncoder(dropout=DROPOUT), BaseDecoder(dropout=DROPOUT), **config)
+vae = VAE(Encoder(1, 128), Decoder(128, 1), **config)
+#vae.metric = torch.nn.BCELoss()
 
-with h5py.File("../data/raw/ion_images.h5", "r") as h5_file:
-    train_indices = np.array(h5_file["dev"])
+with h5py.File("../data/raw/128_ion_images.h5", "r") as h5_file:
+    train_indices = np.array(h5_file["train"])
     test_indices = np.array(h5_file["test"])
 
 # Load up the datasets; random seed is set for the training set
 train_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "projection", indices=train_indices, seed=TRAIN_SEED
+    "../data/raw/128_ion_images.h5",
+    "projection",
+    indices=train_indices,
+    seed=TRAIN_SEED,
 )
 test_dataset = CompositeH5Dataset(
-    "../data/raw/ion_images.h5", "projection", indices=test_indices, seed=TEST_SEED
+    "../data/raw/128_ion_images.h5",
+    "projection",
+    indices=test_indices,
+    seed=TEST_SEED,
 )
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
-test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS)
+train_loader = DataLoader(
+    train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=False
+)
+test_loader = DataLoader(
+    test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=False
+)
 
 logger = pl.loggers.WandbLogger(name="beta-vae", project="deep-ion-image")
 logger.watch(vae, log="all")
@@ -53,6 +64,6 @@ trainer = pl.Trainer(
     accumulate_grad_batches=config["accumulate_grad_batches"],
     gradient_clip_val=GRAD_CLIP,
     logger=logger,
-    )
+)
 
 trainer.fit(vae, train_loader, test_loader)

@@ -36,7 +36,7 @@ class DecoderBlock(nn.Module):
         out_channels,
         conv_kernel,
         dropout=0.0,
-        activation=nn.LeakyReLU(0.3),
+        activation=nn.ReLU(),
         upsample_size=2,
         batch_norm=True,
         reflection=1,
@@ -95,3 +95,42 @@ class TransposeDecoderBlock(nn.Module):
             output = self.activation(output)
         output = self.dropout(output)
         return output
+
+
+class ResidualBlock(nn.Module):
+    def __init__(self, input_channels, num_channels,
+                 use_1x1conv=False, stride=1, output=nn.ReLU, pool: int = 0, upsample: int = 0):
+        super().__init__()
+        layers = []
+        if upsample != 0:
+            layers.append(nn.Upsample(scale_factor=upsample, mode="bilinear"))
+        layers.extend(
+            [nn.Conv2d(input_channels, num_channels, kernel_size=3, padding=1, stride=stride),
+            nn.BatchNorm2d(num_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(num_channels, num_channels, kernel_size=3, padding=1,),
+            nn.BatchNorm2d(num_channels)]
+        )
+        self.conv = nn.Sequential(*layers)
+        if use_1x1conv:
+            self.skip = nn.Conv2d(input_channels, num_channels, 1, stride=stride)
+        else:
+            self.skip = None
+        # if activation provided, instantiate the layer
+        if output:
+            self.output = output()
+        if pool != 0:
+            self.pool = nn.MaxPool2d(pool)
+        else:
+            self.pool = None
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        Y = self.conv(X)
+        if self.skip:
+            X = self.skip(X)
+        Y.add_(X)
+        if self.output:
+            Y = self.output(Y)
+        if self.pool:
+            Y = self.pool(Y)
+        return Y

@@ -5,6 +5,7 @@ from torch import nn
 from torchvision import transforms as tf
 from PIL import Image, ImageFilter
 from scipy.ndimage.filters import gaussian_filter
+from skimage.util import random_noise
 
 
 class AbelProjection(object):
@@ -16,6 +17,23 @@ class AbelProjection(object):
 
     def __call__(self, X: np.ndarray) -> np.ndarray:
         return abel.Transform(X, direction="forward", method="hansenlaw").transform
+
+
+class AddNoise(object):
+    def __init__(self, mean: float = 0., var: float = 0.01):
+        self.mean = mean
+        self.var = var
+        
+    def __call__(self, X: np.ndarray) -> np.ndarray:
+        # make sure to downcast the image, otherwise half and normal
+        # precision will not work
+        X = X / X.max()
+        # flip a coin to determine Gaussian or Poisson noise
+        if np.random.rand() >= 0.5:
+            output = random_noise(X, "gaussian", clip=True, mean=self.mean, var=self.var)
+        else:
+            output = random_noise(X, "poisson", clip=True)
+        return output.astype(np.float32)
 
 
 class ProcessNumpyArray(object):
@@ -90,16 +108,12 @@ central_pipeline = tf.Compose(
 
 projection_pipeline = tf.Compose(
     [
-        #        AbelProjection(),  # Perform Abel transform to get 3D distribution
-        #BlurImage(),
-        #ProcessNumpyArray(),
-        #tf.ToPILImage(),
         #tf.RandomAffine(
         #    0.0, translate=(0.05, 0.05), resample=Image.BICUBIC
         #),  # we move the 3D image around
+        AddNoise(),
         tf.ToTensor(),
-        # nn.Dropout(0.2),   # This adds some noise to the 3D image
-        Normalize()
+        Normalize(),
     ]
 )
 

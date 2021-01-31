@@ -1,7 +1,8 @@
-img_size: 500
-beta: 0.
+img_size: 128
+beta: 1.
 latent_dim: 128
-lr: 0.0005
+z_dim: 128
+lr: 0.0001
 batch_size: 64
 test_seed: 1923
 train_seed: 42
@@ -9,7 +10,5 @@ n_workers: 8
 dropout: 0.2
 accumulate_grad_batches: 1
 max_epochs: 300
-encoding_imgsize: 2
-encoding_filters: 256
 weight_decay: 0.
-gradient_clip_val: 0.
+gradient_clip_val: 1e-3

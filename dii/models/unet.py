@@ -103,7 +103,8 @@ class UnetEncoderBlock(nn.Module):
             "relu": nn.ReLU(),
             "leaky_relu": nn.LeakyReLU(0.3),
             "prelu": nn.PReLU(),
-            "tanh": nn.Tanh()
+            "tanh": nn.Tanh(),
+            "elu": nn.ELU()
         }
         if activation and activation in valid_activations:
             self.activation = valid_activations.get(activation)
@@ -136,7 +137,8 @@ class UnetDecoderBlock(nn.Module):
             "relu": nn.ReLU(),
             "leaky_relu": nn.LeakyReLU(0.3),
             "prelu": nn.PReLU(),
-            "tanh": nn.Tanh()
+            "tanh": nn.Tanh(),
+            "elu": nn.ELU()
         }
         if activation and activation in valid_activations:
             self.activation = valid_activations.get(activation)
