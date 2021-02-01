@@ -102,7 +102,13 @@ class UpsampleDecoder(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, in_channels: int, latent_dim: int, activation: str = "relu", dropout: float = 0.):
+    def __init__(
+        self,
+        in_channels: int,
+        latent_dim: int,
+        activation: str = "relu",
+        dropout: float = 0.0,
+    ):
         super().__init__()
         sizes = [
             8,
@@ -131,7 +137,7 @@ class Encoder(nn.Module):
                         pool=2,
                         use_1x1conv=True,
                         activation=chosen_activation,
-                        dropout=dropout
+                        dropout=dropout,
                     )
                 ]
             else:
@@ -142,7 +148,7 @@ class Encoder(nn.Module):
                         pool=2,
                         use_1x1conv=True,
                         activation=chosen_activation,
-                        dropout=dropout
+                        dropout=dropout,
                     )
                 )
         model.extend([nn.Flatten(), nn.Linear(128 * 4 * 4, latent_dim)])
@@ -153,7 +159,13 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_dim: int, out_channels: int, activation: str = "relu", dropout: float = 0.):
+    def __init__(
+        self,
+        latent_dim: int,
+        out_channels: int,
+        activation: str = "relu",
+        dropout: float = 0.0,
+    ):
         super().__init__()
         sizes = [128, 64, 32, 16, 8, out_channels]
         self.fc = nn.Linear(latent_dim, sizes[0] * 4 * 4)
@@ -182,7 +194,7 @@ class Decoder(nn.Module):
                         3,
                         upsample_size=2,
                         activation=None,
-                        dropout=dropout
+                        dropout=dropout,
                     )
                 )
             else:
@@ -193,7 +205,7 @@ class Decoder(nn.Module):
                         3,
                         upsample_size=2,
                         activation=chosen_activation,
-                        dropout=dropout
+                        dropout=dropout,
                     )
                 )
         self.model = nn.Sequential(*model)
@@ -213,7 +225,7 @@ class AutoEncoder(pl.LightningModule):
         weight_decay=0.0,
         split_true: bool = False,
         activation: str = "relu",
-        dropout: float = 0.,
+        dropout: float = 0.0,
         **kwargs,
     ):
         super().__init__()
@@ -385,12 +397,23 @@ class VAE(AutoEncoder):
         latent_dim=64,
         z_dim=64,
         lr=0.001,
-        split_true: bool = True,
+        weight_decay: float = 0.,
+        split_true: bool = False,
+        activation: str = "relu",
+        dropout: float = 0.0,
         **kwargs,
     ):
-        super().__init__(None, None, lr=lr, **kwargs)
-        self.encoder = Encoder(in_channels, latent_dim)
-        self.decoder = Decoder(latent_dim, out_channels)
+        super().__init__(
+            in_channels,
+            out_channels,
+            latent_dim,
+            lr,
+            weight_decay,
+            split_true,
+            activation,
+            dropout,
+            **kwargs,
+        )
         self.fc_mu = nn.Linear(latent_dim, z_dim)
         self.fc_logvar = nn.Linear(latent_dim, z_dim)
         # in the event KLdiv goes to NaN, make sure weights are small
@@ -444,130 +467,6 @@ class VAE(AutoEncoder):
         log_var = self.fc_var(x)
         p, q, z = self.sample(mu, log_var)
         return self.decoder(z)
-
-
-class PLVAE(pl.LightningModule):
-    """
-    Standard VAE with Gaussian Prior and approx posterior.
-    Model is available pretrained on different datasets:
-    Example::
-        # not pretrained
-        vae = VAE()
-        # pretrained on cifar10
-        vae = VAE.from_pretrained('cifar10-resnet18')
-        # pretrained on stl10
-        vae = VAE.from_pretrained('stl10-resnet18')
-    """
-
-    def __init__(
-        self,
-        input_height: int,
-        first_conv: bool = False,
-        maxpool1: bool = False,
-        enc_out_dim: int = 512,
-        kl_coeff: float = 0.1,
-        latent_dim: int = 256,
-        lr: float = 1e-4,
-        **kwargs,
-    ):
-        """
-        Args:
-            input_height: height of the images
-            enc_type: option between resnet18 or resnet50
-            first_conv: use standard kernel_size 7, stride 2 at start or
-                replace it with kernel_size 3, stride 1 conv
-            maxpool1: use standard maxpool to reduce spatial dim of feat by a factor of 2
-            enc_out_dim: set according to the out_channel count of
-                encoder used (512 for resnet18, 2048 for resnet50)
-            kl_coeff: coefficient for kl term of the loss
-            latent_dim: dim of latent space
-            lr: learning rate for Adam
-        """
-        super().__init__()
-
-        self.save_hyperparameters()
-
-        self.lr = lr
-        self.kl_coeff = kl_coeff
-        self.enc_out_dim = enc_out_dim
-        self.latent_dim = latent_dim
-        self.input_height = input_height
-
-        self.encoder = resnet18_encoder(first_conv, maxpool1)
-        self.decoder = resnet18_decoder(
-            self.latent_dim, self.input_height, first_conv, maxpool1
-        )
-
-        self.fc_mu = nn.Linear(self.enc_out_dim, self.latent_dim)
-        self.fc_var = nn.Linear(self.enc_out_dim, self.latent_dim)
-
-    def forward(self, x):
-        x = self.encoder(x)
-        mu = self.fc_mu(x)
-        log_var = self.fc_var(x)
-        p, q, z = self.sample(mu, log_var)
-        return self.decoder(z)
-
-    def _run_step(self, x):
-        x = self.encoder(x)
-        mu = self.fc_mu(x)
-        log_var = self.fc_var(x)
-        p, q, z = self.sample(mu, log_var)
-        return z, self.decoder(z), p, q
-
-    def sample(self, mu, log_var):
-        std = torch.exp(log_var / 2)
-        p = torch.distributions.Normal(torch.zeros_like(mu), torch.ones_like(std))
-        q = torch.distributions.Normal(mu, std)
-        z = q.rsample()
-        return p, q, z
-
-    def step(self, batch, batch_idx):
-        x, y = batch
-        z, x_hat, p, q = self._run_step(x)
-
-        recon_loss = F.mse_loss(x_hat, x, reduction="mean")
-
-        log_qz = q.log_prob(z)
-        log_pz = p.log_prob(z)
-
-        kl = log_qz - log_pz
-        kl = kl.mean()
-        kl *= self.kl_coeff
-
-        loss = kl + recon_loss
-
-        # do some image logging as well
-        # img_size = x.size(-1)
-        # input_img = x[0].cpu().detach().view(1, img_size, img_size)
-        # pred_img = x_hat[0].cpu().detach().view(1, img_size, img_size)
-        # target_img = y[0].cpu().detach().view(1, img_size, img_size)
-        # compressed = torch.cat([input_img, target_img, pred_img], dim=1
-        #     )
-        # grid = torchvision.utils.make_grid(compressed)
-        logs = {
-            "recon_loss": recon_loss,
-            "kl": kl,
-            "loss": loss,
-        }
-        return loss, logs
-
-    def training_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, batch_idx)
-        self.log_dict(
-            {f"train_{k}": v for k, v in logs.items() if "images" not in k},
-            on_step=True,
-            on_epoch=False,
-        )
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"val_{k}": v for k, v in logs.items() if "images" not in k})
-        return loss
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.lr)
 
 
 class PixelCNNAutoEncoder(AutoEncoder):
