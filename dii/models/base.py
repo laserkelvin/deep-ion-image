@@ -132,18 +132,19 @@ class Decoder(nn.Module):
 
 
 class AutoEncoder(pl.LightningModule):
-    def __init__(self, encoder, decoder, lr=1e-3, weight_decay=0.0, **kwargs):
+    def __init__(self, encoder, decoder, lr=1e-3, weight_decay=0.0, split_true: bool = False, **kwargs):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
         self.lr = lr
         self.weight_decay = weight_decay
+        self.split_true = split_true
         self.apply(initialize_weights)
         self.metric = nn.BCEWithLogitsLoss()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
-        return self.decoder(z).squeeze()
+        return self.decoder(z)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
@@ -152,9 +153,16 @@ class AutoEncoder(pl.LightningModule):
         return optimizer
 
     def step(self, batch, batch_idx):
-        X, Y, _ = batch
-        pred_Y = self(X).squeeze()
-        loss = self.metric(pred_Y, Y.squeeze())
+        # ignore the mask and the unsplit images
+        X, Y, _, unsplit = batch
+        pred_Y = self(X)
+        if self.split_true:
+            loss = self.metric(pred_Y, unsplit.permute(0, 2, 1, 3))
+            collapsed  = pred_Y.sum(1).unsqueeze(1)
+            loss += self.metric(collapsed, Y)
+            pred_Y = collapsed
+        else:
+            loss = self.metric(pred_Y, Y)
         # get some images
         images = list()
         for tensor in [X, Y, pred_Y]:
@@ -216,7 +224,7 @@ class UNetSegAE(AutoEncoder):
         return (output, mask)
 
     def step(self, batch, batch_idx):
-        X, Y, mask = batch
+        X, Y, mask, _ = batch
         encoding = self.encoder(X)
         pred_Y, pred_mask = self.decoder(encoding)
         
@@ -275,21 +283,26 @@ class UNetSegAE(AutoEncoder):
 class VAE(AutoEncoder):
     def __init__(
         self,
-        encoder,
-        decoder,
+        in_channels: int,
+        out_channels: int,
         beta=4,
         latent_dim=64,
         z_dim=64,
         lr=0.001,
+        split_true: bool = True,
         **kwargs
     ):
-        super().__init__(encoder, decoder, lr=lr, **kwargs)
+        super().__init__(None, None, lr=lr, **kwargs)
+        self.encoder = Encoder(in_channels, latent_dim)
+        self.decoder = Decoder(latent_dim, out_channels)
         self.fc_mu = nn.Linear(latent_dim, z_dim)
         self.fc_logvar = nn.Linear(latent_dim, z_dim)
+        # in the event KLdiv goes to NaN, make sure weights are small
         # nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
         # nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
         self.beta = beta
         self.latent_dim = latent_dim
+        self.split_true = split_true
         self.apply(initialize_weights)
 
     def _run_step(self, x):
@@ -307,10 +320,12 @@ class VAE(AutoEncoder):
         return p, q, z
 
     def step(self, batch, batch_idx):
-        X, Y, _ = batch
+        X, Y, _, unsplit = batch
         z, pred_Y, p, q = self._run_step(X)
-
-        recon_loss = self.metric(pred_Y, Y)
+        if self.split_true:
+            recon_loss = self.metric(pred_Y, unsplit)
+        else:
+            recon_loss = self.metric(pred_Y, Y)
 
         images = list()
         for tensor in [X, Y, pred_Y]:
@@ -326,15 +341,6 @@ class VAE(AutoEncoder):
         kl *= self.beta
 
         loss = kl + recon_loss
-        
-        # do some image logging as well
-        # img_size = x.size(-1)
-        # input_img = x[0].cpu().detach().view(1, img_size, img_size)
-        # pred_img = x_hat[0].cpu().detach().view(1, img_size, img_size)
-        # target_img = y[0].cpu().detach().view(1, img_size, img_size)
-        # compressed = torch.cat([input_img, target_img, pred_img], dim=1
-        #     )
-        # grid = torchvision.utils.make_grid(compressed)
         logs = {
             "recon_loss": recon_loss,
             "kl": kl,
