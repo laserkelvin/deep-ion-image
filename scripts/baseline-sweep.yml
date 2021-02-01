@@ -1,0 +1,30 @@
+name: baseline-sweep
+description: Seeing what basic elements affect the baseline model most
+program: train_baseline.py
+method: bayes
+early_terminate:
+        type: hyperband
+        min_iter: 10
+metric:
+        name: val_recon_loss
+        goal: minimize
+parameters:
+        epochs:
+                min: 10
+                max: 300
+        lr:
+                min: 1e-4
+                max: 5e-3
+        weight_decay:
+                min: 0.
+                max: 1e-4
+        activation:
+                distribution: categorical
+                values: 
+                - elu
+                - silu
+                - relu
+                - tanh
+                - prelu
+        dropout:
+                values: [0., 0.1, 0.2, 0.3, 0.4]
