@@ -132,10 +132,10 @@ class Decoder(nn.Module):
 
 
 class AutoEncoder(pl.LightningModule):
-    def __init__(self, encoder, decoder, lr=1e-3, weight_decay=0.0, split_true: bool = False, **kwargs):
+    def __init__(self, in_channels: int, out_channels: int, latent_dim: int = 128, lr=1e-3, weight_decay=0.0, split_true: bool = False, **kwargs):
         super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
+        self.encoder = Encoder(in_channels, latent_dim)
+        self.decoder = Decoder(latent_dim, out_channels)
         self.lr = lr
         self.weight_decay = weight_decay
         self.split_true = split_true
