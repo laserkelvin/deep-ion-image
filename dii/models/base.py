@@ -212,10 +212,10 @@ class UNetAutoEncoder(AutoEncoder):
 
 
 class UNetSegAE(AutoEncoder):
-    def __init__(self, num_segs: int = 9, start_features: float = 16, lr: float = 1e-3, bilinear: bool = True, activation=None, **kwargs):
+    def __init__(self, in_channels: int, out_channels: int, num_segs: int = 9, start_features: float = 16, lr: float = 1e-3, bilinear: bool = True, activation=None, **kwargs):
         super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
-        self.encoder = UnetEncoder(1, start_features, bilinear, activation)
-        self.decoder = UnetDecoder(1, num_segs, start_features, bilinear, activation)
+        self.encoder = UnetEncoder(in_channels, start_features, bilinear, activation)
+        self.decoder = UnetDecoder(out_channels, num_segs, start_features, bilinear, activation)
         self.apply(initialize_weights)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
