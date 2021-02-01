@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.modules.dropout import Dropout
 
 
 class ConvolutionBlock(nn.Module):
@@ -36,7 +37,7 @@ class DecoderBlock(nn.Module):
         out_channels,
         conv_kernel,
         dropout=0.0,
-        activation=nn.ReLU(),
+        activation=nn.ReLU,
         upsample_size=2,
         batch_norm=True,
         reflection=1,
@@ -44,7 +45,7 @@ class DecoderBlock(nn.Module):
     ):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, conv_kernel, **kwargs)
-        self.activation = activation
+        self.activation = activation()
         if batch_norm:
             self.norm = nn.BatchNorm2d(out_channels)
         else:
@@ -98,18 +99,41 @@ class TransposeDecoderBlock(nn.Module):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, input_channels, num_channels,
-                 use_1x1conv=False, stride=1, output=nn.ReLU, pool: int = 0, upsample: int = 0):
+    def __init__(
+        self,
+        input_channels,
+        num_channels,
+        use_1x1conv=False,
+        stride=1,
+        activation=nn.ReLU,
+        pool: int = 0,
+        upsample: int = 0,
+        dropout: float = 0.,
+    ):
         super().__init__()
         layers = []
         if upsample != 0:
             layers.append(nn.Upsample(scale_factor=upsample, mode="bilinear"))
         layers.extend(
-            [nn.Conv2d(input_channels, num_channels, kernel_size=3, padding=1, stride=stride),
-            nn.BatchNorm2d(num_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(num_channels, num_channels, kernel_size=3, padding=1,),
-            nn.BatchNorm2d(num_channels)]
+            [
+                nn.Conv2d(
+                    input_channels,
+                    num_channels,
+                    kernel_size=3,
+                    padding=1,
+                    stride=stride,
+                ),
+                nn.Dropout(dropout),
+                nn.BatchNorm2d(num_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(
+                    num_channels,
+                    num_channels,
+                    kernel_size=3,
+                    padding=1,
+                ),
+                nn.BatchNorm2d(num_channels),
+            ]
         )
         self.conv = nn.Sequential(*layers)
         if use_1x1conv:
@@ -117,8 +141,8 @@ class ResidualBlock(nn.Module):
         else:
             self.skip = None
         # if activation provided, instantiate the layer
-        if output:
-            self.output = output()
+        if activation:
+            self.activation = activation()
         if pool != 0:
             self.pool = nn.MaxPool2d(pool)
         else:
@@ -129,8 +153,8 @@ class ResidualBlock(nn.Module):
         if self.skip:
             X = self.skip(X)
         Y.add_(X)
-        if self.output:
-            Y = self.output(Y)
+        if self.activation:
+            Y = self.activation(Y)
         if self.pool:
             Y = self.pool(Y)
         return Y

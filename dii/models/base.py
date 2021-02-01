@@ -1,4 +1,3 @@
-
 from typing import Dict, List
 
 import torch
@@ -53,12 +52,22 @@ class BaseDecoder(nn.Module):
     def __init__(self, dropout=0.0):
         super().__init__()
         self.layers = nn.Sequential(
-            layers.TransposeDecoderBlock(256, 128, 4, padding=1, stride=4, output_padding=3),
-            layers.TransposeDecoderBlock(128, 64, 3, padding=2, stride=2, output_padding=1),
-            layers.TransposeDecoderBlock(64, 48, 4, padding=1, stride=4, output_padding=2),
+            layers.TransposeDecoderBlock(
+                256, 128, 4, padding=1, stride=4, output_padding=3
+            ),
+            layers.TransposeDecoderBlock(
+                128, 64, 3, padding=2, stride=2, output_padding=1
+            ),
+            layers.TransposeDecoderBlock(
+                64, 48, 4, padding=1, stride=4, output_padding=2
+            ),
             layers.TransposeDecoderBlock(48, 24, 8, padding=5, stride=4),
-            layers.TransposeDecoderBlock(24, 8, 4, padding=3, stride=2, output_padding=1),
-            layers.TransposeDecoderBlock(8, 1, 4, activation=nn.Sigmoid(), batch_norm=False, stride=1),
+            layers.TransposeDecoderBlock(
+                24, 8, 4, padding=3, stride=2, output_padding=1
+            ),
+            layers.TransposeDecoderBlock(
+                8, 1, 4, activation=nn.Sigmoid(), batch_norm=False, stride=1
+            ),
         )
 
     def forward(self, X: torch.Tensor):
@@ -76,7 +85,15 @@ class UpsampleDecoder(nn.Module):
             layers.DecoderBlock(48, 24, 3, reflection=1),
             layers.DecoderBlock(24, 12, 3, padding=1, reflection=1),
             layers.DecoderBlock(12, 8, 5, upsample_size=2),
-            layers.DecoderBlock(8, 1, 3, activation=nn.Sigmoid(), batch_norm=False, upsample_size=1, padding=1),
+            layers.DecoderBlock(
+                8,
+                1,
+                3,
+                activation=nn.Sigmoid(),
+                batch_norm=False,
+                upsample_size=1,
+                padding=1,
+            ),
         )
 
     def forward(self, X: torch.Tensor):
@@ -85,17 +102,48 @@ class UpsampleDecoder(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, in_channels: int, latent_dim: int):
+    def __init__(self, in_channels: int, latent_dim: int, activation: str = "relu", dropout: float = 0.):
         super().__init__()
-        sizes = [8, 16, 32, 64, 128,]
+        sizes = [
+            8,
+            16,
+            32,
+            64,
+            128,
+        ]
+        activation_maps = {
+            "relu": nn.ReLU,
+            "elu": nn.ELU,
+            "prelu": nn.PReLU,
+            "leaky_relu": nn.LeakyReLU,
+            "tanh": nn.Tanh,
+            "silu": nn.SiLU,
+        }
+        if activation not in activation_maps:
+            activation = "relu"
+        chosen_activation = activation_maps.get(activation, "relu")
         for index, out_channels in enumerate(sizes):
             if index == 0:
                 model = [
-                    layers.ResidualBlock(in_channels, out_channels, pool=2, use_1x1conv=True)
+                    layers.ResidualBlock(
+                        in_channels,
+                        out_channels,
+                        pool=2,
+                        use_1x1conv=True,
+                        activation=chosen_activation,
+                        dropout=dropout
+                    )
                 ]
             else:
                 model.append(
-                    layers.ResidualBlock(sizes[index - 1], out_channels, pool=2, use_1x1conv=True)
+                    layers.ResidualBlock(
+                        sizes[index - 1],
+                        out_channels,
+                        pool=2,
+                        use_1x1conv=True,
+                        activation=chosen_activation,
+                        dropout=dropout
+                    )
                 )
         model.extend([nn.Flatten(), nn.Linear(128 * 4 * 4, latent_dim)])
         self.model = nn.Sequential(*model)
@@ -105,23 +153,47 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, latent_dim: int, out_channels: int):
+    def __init__(self, latent_dim: int, out_channels: int, activation: str = "relu", dropout: float = 0.):
         super().__init__()
         sizes = [128, 64, 32, 16, 8, out_channels]
         self.fc = nn.Linear(latent_dim, sizes[0] * 4 * 4)
+        # get a mapping of valid activation functions
+        activation_maps = {
+            "relu": nn.ReLU,
+            "elu": nn.ELU,
+            "prelu": nn.PReLU,
+            "leaky_relu": nn.LeakyReLU,
+            "tanh": nn.Tanh,
+            "silu": nn.SiLU,
+        }
+        if activation not in activation_maps:
+            activation = "relu"
+        chosen_activation = activation_maps.get(activation, "relu")
         model = list()
         for index, out_channels in enumerate(sizes):
             if index == 0:
                 pass
             # no activation for the last layer
             elif index == len(sizes):
-                model.append(layers.DecoderBlock(
-                    sizes[index - 1], out_channels, 3, upsample_size=2, activation=None
-                ))
+                model.append(
+                    layers.DecoderBlock(
+                        sizes[index - 1],
+                        out_channels,
+                        3,
+                        upsample_size=2,
+                        activation=None,
+                        dropout=dropout
+                    )
+                )
             else:
                 model.append(
                     layers.DecoderBlock(
-                        sizes[index - 1], out_channels, 3, upsample_size=2,
+                        sizes[index - 1],
+                        out_channels,
+                        3,
+                        upsample_size=2,
+                        activation=chosen_activation,
+                        dropout=dropout
                     )
                 )
         self.model = nn.Sequential(*model)
@@ -132,10 +204,21 @@ class Decoder(nn.Module):
 
 
 class AutoEncoder(pl.LightningModule):
-    def __init__(self, in_channels: int, out_channels: int, latent_dim: int = 128, lr=1e-3, weight_decay=0.0, split_true: bool = False, **kwargs):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        latent_dim: int = 128,
+        lr=1e-3,
+        weight_decay=0.0,
+        split_true: bool = False,
+        activation: str = "relu",
+        dropout: float = 0.,
+        **kwargs,
+    ):
         super().__init__()
-        self.encoder = Encoder(in_channels, latent_dim)
-        self.decoder = Decoder(latent_dim, out_channels)
+        self.encoder = Encoder(in_channels, latent_dim, activation, dropout)
+        self.decoder = Decoder(latent_dim, out_channels, activation, dropout)
         self.lr = lr
         self.weight_decay = weight_decay
         self.split_true = split_true
@@ -158,7 +241,7 @@ class AutoEncoder(pl.LightningModule):
         pred_Y = self(X)
         if self.split_true:
             loss = self.metric(pred_Y, unsplit.permute(0, 2, 1, 3))
-            collapsed  = pred_Y.sum(1).unsqueeze(1)
+            collapsed = pred_Y.sum(1).unsqueeze(1)
             loss += self.metric(collapsed, Y)
             pred_Y = collapsed
         else:
@@ -166,23 +249,26 @@ class AutoEncoder(pl.LightningModule):
         # get some images
         images = list()
         for tensor in [X, Y, pred_Y]:
-            images.append(
-                tensor[0].cpu().detach()
-            )
-        logs = {
-            "recon_loss": loss,
-            "samples": images
-            }
+            images.append(tensor[0].cpu().detach())
+        logs = {"recon_loss": loss, "samples": images}
         return loss, logs
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"train_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=False, on_epoch=True)
+        self.log_dict(
+            {f"train_{k}": v for k, v in logs.items() if "samples" not in k},
+            on_step=False,
+            on_epoch=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"val_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=False, on_epoch=True)
+        self.log_dict(
+            {f"val_{k}": v for k, v in logs.items() if "samples" not in k},
+            on_step=False,
+            on_epoch=True,
+        )
         return (loss, logs)
 
     def validation_epoch_end(self, outputs):
@@ -193,7 +279,7 @@ class AutoEncoder(pl.LightningModule):
             {
                 "target": wandb.Image(y.float()),
                 "predicted": wandb.Image(pred_y.float()),
-                "input": wandb.Image(x.float())
+                "input": wandb.Image(x.float()),
             }
         )
 
@@ -212,10 +298,22 @@ class UNetAutoEncoder(AutoEncoder):
 
 
 class UNetSegAE(AutoEncoder):
-    def __init__(self, in_channels: int, out_channels: int, num_segs: int = 9, start_features: float = 16, lr: float = 1e-3, bilinear: bool = True, activation=None, **kwargs):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        num_segs: int = 9,
+        start_features: float = 16,
+        lr: float = 1e-3,
+        bilinear: bool = True,
+        activation=None,
+        **kwargs,
+    ):
         super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
         self.encoder = UnetEncoder(in_channels, start_features, bilinear, activation)
-        self.decoder = UnetDecoder(out_channels, num_segs, start_features, bilinear, activation)
+        self.decoder = UnetDecoder(
+            out_channels, num_segs, start_features, bilinear, activation
+        )
         self.apply(initialize_weights)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -227,7 +325,7 @@ class UNetSegAE(AutoEncoder):
         X, Y, mask, _ = batch
         encoding = self.encoder(X)
         pred_Y, pred_mask = self.decoder(encoding)
-        
+
         # calculate losses
         recon_loss = self.metric(pred_Y, Y)
         seg_loss = F.cross_entropy(pred_mask, mask)
@@ -235,27 +333,15 @@ class UNetSegAE(AutoEncoder):
         # get some images
         images = list()
         for tensor in [X, Y, pred_Y, mask, pred_mask]:
-            images.append(
-                tensor[0].cpu().detach()
-            )
+            images.append(tensor[0].cpu().detach())
         logs = {
             "recon_loss": recon_loss,
             "seg_loss": seg_loss,
             "loss": loss,
-            "samples": images
+            "samples": images,
         }
         return loss, logs
 
-    # def training_step(self, batch, batch_idx):
-    #     loss, logs = self.step(batch, batch_idx)
-    #     self.log_dict({f"train_{k}": v for k, v in logs.items() if "samples" not in k}, on_step=True, on_epoch=False)
-    #     return loss
-
-    # def validation_step(self, batch, batch_idx):
-    #     loss, logs = self.step(batch, batch_idx)
-    #     self.log_dict({f"val_{k}": v for k, v in logs.items() if "samples" not in k})
-    #     return (loss, logs)
-    
     def validation_epoch_end(self, outputs):
         loss, logs = outputs[-1]
         images = logs.get("samples")
@@ -265,20 +351,30 @@ class UNetSegAE(AutoEncoder):
         mask = mask.numpy()
         self.logger.experiment.log(
             {
-                "input": wandb.Image(x.float(), masks={
-                    "ground_truth": {"mask_data": mask},
-                    "prediction": {"mask_data": pred_mask}
-                    }),
-                "target": wandb.Image(y.float(), masks={
-                    "ground_truth": {"mask_data": mask},
-                    "prediction": {"mask_data": pred_mask}
-                    }),
-                "predicted": wandb.Image(pred_y.float(), masks={
-                    "ground_truth": {"mask_data": mask},
-                    "prediction": {"mask_data": pred_mask}
-                    }),
+                "input": wandb.Image(
+                    x.float(),
+                    masks={
+                        "ground_truth": {"mask_data": mask},
+                        "prediction": {"mask_data": pred_mask},
+                    },
+                ),
+                "target": wandb.Image(
+                    y.float(),
+                    masks={
+                        "ground_truth": {"mask_data": mask},
+                        "prediction": {"mask_data": pred_mask},
+                    },
+                ),
+                "predicted": wandb.Image(
+                    pred_y.float(),
+                    masks={
+                        "ground_truth": {"mask_data": mask},
+                        "prediction": {"mask_data": pred_mask},
+                    },
+                ),
             }
         )
+
 
 class VAE(AutoEncoder):
     def __init__(
@@ -290,7 +386,7 @@ class VAE(AutoEncoder):
         z_dim=64,
         lr=0.001,
         split_true: bool = True,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(None, None, lr=lr, **kwargs)
         self.encoder = Encoder(in_channels, latent_dim)
@@ -329,9 +425,7 @@ class VAE(AutoEncoder):
 
         images = list()
         for tensor in [X, Y, pred_Y]:
-            images.append(
-                tensor[0].cpu().detach()
-            )
+            images.append(tensor[0].cpu().detach())
 
         log_qz = q.log_prob(z)
         log_pz = p.log_prob(z)
@@ -341,12 +435,7 @@ class VAE(AutoEncoder):
         kl *= self.beta
 
         loss = kl + recon_loss
-        logs = {
-            "recon_loss": recon_loss,
-            "kl": kl,
-            "loss": loss,
-            "samples": images
-        }
+        logs = {"recon_loss": recon_loss, "kl": kl, "loss": loss, "samples": images}
         return loss, logs
 
     def forward(self, x):
@@ -369,6 +458,7 @@ class PLVAE(pl.LightningModule):
         # pretrained on stl10
         vae = VAE.from_pretrained('stl10-resnet18')
     """
+
     def __init__(
         self,
         input_height: int,
@@ -378,7 +468,7 @@ class PLVAE(pl.LightningModule):
         kl_coeff: float = 0.1,
         latent_dim: int = 256,
         lr: float = 1e-4,
-        **kwargs
+        **kwargs,
     ):
         """
         Args:
@@ -402,9 +492,11 @@ class PLVAE(pl.LightningModule):
         self.enc_out_dim = enc_out_dim
         self.latent_dim = latent_dim
         self.input_height = input_height
-        
+
         self.encoder = resnet18_encoder(first_conv, maxpool1)
-        self.decoder = resnet18_decoder(self.latent_dim, self.input_height, first_conv, maxpool1)
+        self.decoder = resnet18_decoder(
+            self.latent_dim, self.input_height, first_conv, maxpool1
+        )
 
         self.fc_mu = nn.Linear(self.enc_out_dim, self.latent_dim)
         self.fc_var = nn.Linear(self.enc_out_dim, self.latent_dim)
@@ -434,7 +526,7 @@ class PLVAE(pl.LightningModule):
         x, y = batch
         z, x_hat, p, q = self._run_step(x)
 
-        recon_loss = F.mse_loss(x_hat, x, reduction='mean')
+        recon_loss = F.mse_loss(x_hat, x, reduction="mean")
 
         log_qz = q.log_prob(z)
         log_pz = p.log_prob(z)
@@ -444,7 +536,7 @@ class PLVAE(pl.LightningModule):
         kl *= self.kl_coeff
 
         loss = kl + recon_loss
-        
+
         # do some image logging as well
         # img_size = x.size(-1)
         # input_img = x[0].cpu().detach().view(1, img_size, img_size)
@@ -462,7 +554,11 @@ class PLVAE(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, logs = self.step(batch, batch_idx)
-        self.log_dict({f"train_{k}": v for k, v in logs.items() if "images" not in k}, on_step=True, on_epoch=False)
+        self.log_dict(
+            {f"train_{k}": v for k, v in logs.items() if "images" not in k},
+            on_step=True,
+            on_epoch=False,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -475,7 +571,14 @@ class PLVAE(pl.LightningModule):
 
 
 class PixelCNNAutoEncoder(AutoEncoder):
-    def __init__(self, input_channels: int = 1, latent_dim: int = 256, num_blocks: int = 5, lr=1e-3, **kwargs):
+    def __init__(
+        self,
+        input_channels: int = 1,
+        latent_dim: int = 256,
+        num_blocks: int = 5,
+        lr=1e-3,
+        **kwargs,
+    ):
         super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
         self.model = PixelCNN(input_channels, latent_dim, num_blocks)
         self.metric = nn.MSELoss()
