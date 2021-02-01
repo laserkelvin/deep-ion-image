@@ -185,26 +185,33 @@ class CompositeH5Dataset(H5Dataset):
         chosen = np.random.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
             chosen = sorted(chosen)
-        # get the true central image and projections
-        true = np.array(self.target_dataset[chosen])
-        projection = np.array(self.dataset[chosen])
         centers = np.array(distances[chosen])
+        radial_sort = np.argsort(centers)
+        # get the true central image and projections
+        true = np.array(self.target_dataset[chosen])[radial_sort]
+        projection = np.array(self.dataset[chosen])[radial_sort]
+        unsplit_true = np.copy(true)
         # if we have multiple images, flatten to a single composite
         if true.ndim == 3:
             true = true.sum(axis=0)
+        if unsplit_true.shape[0] < self.max_composites:
+            img_size = unsplit_true.shape[-1]
+            remaining = self.max_composites - unsplit_true.shape[0]
+            unsplit_true = np.vstack([unsplit_true, np.zeros((remaining, img_size, img_size))])
         if projection.ndim == 3:
             # for the projection, generate a mask for segmentation later
-            mask = generate_mask(projection, centers, self.mask_threshold, num_classes=self.max_composites)
+            mask = generate_mask(projection, centers[radial_sort], self.mask_threshold, num_classes=self.max_composites)
             projection = projection.sum(axis=0)
         else:
             mask = np.zeros_like(projection)
         # if we have a compose pipeline defined, run it
         if self.target_transform:
             true = self.target_transform(true)
+            unsplit_true = self.target_transform(unsplit_true)
         # Y is the central slice, whereas X is the projection, which is
         # appropriate for the direction we're going
         projection = self.transform(projection)
-        return (projection, true, mask)
+        return (projection, true, mask, unsplit_true)
 
 
 class SelectiveComposite(H5Dataset):
