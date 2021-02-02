@@ -464,9 +464,26 @@ class VAE(AutoEncoder):
     def forward(self, x):
         x = self.encoder(x)
         mu = self.fc_mu(x)
-        log_var = self.fc_var(x)
+        log_var = self.fc_logvar(x)
         p, q, z = self.sample(mu, log_var)
         return self.decoder(z)
+
+    def validation_epoch_end(self, outputs):
+        loss, logs = outputs[-1]
+        images = logs.get("samples")
+        x, y, pred_y = images
+        X = x.repeat((10, 1, 1, 1)).cuda()
+        with torch.no_grad():
+            samples = self(X).cpu()
+            sample_grid = torchvision.utils.make_grid(samples)
+        self.logger.experiment.log(
+            {
+                "target": wandb.Image(y.float()),
+                "predicted": wandb.Image(pred_y.float()),
+                "input": wandb.Image(x.float()),
+                "samples": wandb.Image(sample_grid)
+            }
+        )
 
 
 class PixelCNNAutoEncoder(AutoEncoder):
