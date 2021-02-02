@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import pytorch_lightning as pl
+import argparse
 import torch
 import wandb
 from torch.utils.data import DataLoader
@@ -11,14 +12,51 @@ from dii.utils import checkpoint_callback, load_yaml
 
 config = load_yaml("betavae.yml")
 
-N_WORKERS = config["n_workers"]
-BATCH_SIZE = config["batch_size"]
-TRAIN_SEED = np.random.seed(config["train_seed"])
-TEST_SEED = np.random.seed(config["test_seed"])
+parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
+parser.add_argument('--in_channels', type=int, default=1, metavar='N',
+                    help='Number of input channels (default: 1)')
+parser.add_argument('--out_channels', type=int, default=1, metavar='N',
+                    help='Number of otuput channels (default: 1)')
+parser.add_argument('--latent_dim', type=int, default=128, metavar='N',
+                    help='Dimensionality of the latent vector (default: 1)')
+parser.add_argument('--batch_size', type=int, default=64, metavar='N',
+                    help='input batch size for training (default: 64)')
+parser.add_argument('--accum_grad', type=int, default=1, metavar='N',
+                    help='input batch size for training (default: 64)')
+parser.add_argument('--n_workers', type=int, default=8, metavar='N',
+                    help='Number of CPUs for dataloading (default: 9)')
+parser.add_argument('--epochs', type=int, default=50, metavar='N',
+                    help='number of epochs to train (default: 14)')
+parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
+                    help='learning rate (default: 1.0)')
+parser.add_argument('--train_seed', type=int, default=42, metavar='S',
+                    help='random seed (default: 1)')
+parser.add_argument('--test_seed', type=int, default=1923, metavar='S',
+                    help='random seed (default: 1)')
+parser.add_argument('--grad_clip', type=float, default=0., metavar='GC',
+                    help='Gradient clipping value (default: 0)')
+parser.add_argument('--activation', type=str, default="relu", metavar='GC',
+                    help='Name of activation function (default: relu)')
+parser.add_argument('--half', type=bool, default=False, metavar='GC',
+                    help='Flag for using half precision (default: False)')
+parser.add_argument('--dropout', type=float, default=0., metavar='GC',
+                    help='Dropout probability (default: 0)')
+parser.add_argument('--weight_decay', type=float, default=0., metavar='GC',
+                    help='L2 regularization (default: 0)')
+parser.add_argument('--beta', type=float, default=1., metavar='GC',
+                    help='Beta coefficient (default: 1)')
+parser.add_argument('--z_dim', type=int, default=128, metavar='Z',
+                    help='Dimensionality of the latent vector (default: 1)')
+args = parser.parse_args()
 
-GRAD_CLIP = config.get("gradient_clip_val", 0.0)
+if args.half:
+    PRECISION = 16
+else:
+    PRECISION = 32
 
-DROPOUT = config["dropout"]
+wandb.init(config=config)
+wandb.config.update(args)
+
 
 if torch.cuda.is_available():
     GPU = 1
@@ -26,7 +64,7 @@ else:
     GPU = 0
 
 
-vae = VAE(Encoder(1, 128), Decoder(128, 1), **config)
+vae = VAE(**vars(args))
 #vae.metric = torch.nn.BCELoss()
 
 with h5py.File("../data/raw/128_ion_images.h5", "r") as h5_file:
@@ -38,31 +76,31 @@ train_dataset = CompositeH5Dataset(
     "../data/raw/128_ion_images.h5",
     "projection",
     indices=train_indices,
-    seed=TRAIN_SEED,
+    seed=args.train_seed,
 )
 test_dataset = CompositeH5Dataset(
     "../data/raw/128_ion_images.h5",
     "projection",
     indices=test_indices,
-    seed=TEST_SEED,
+    seed=args.test_seed,
 )
 
 train_loader = DataLoader(
-    train_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=False
+    train_dataset, batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=False
 )
 test_loader = DataLoader(
-    test_dataset, batch_size=BATCH_SIZE, num_workers=N_WORKERS, pin_memory=False
+    test_dataset, batch_size=args.batch_size, num_workers=args.n_workers, pin_memory=False
 )
 
 logger = pl.loggers.WandbLogger(name="beta-vae", project="deep-ion-image")
 logger.watch(vae, log="all")
-logger.log_hyperparams(config)
+logger.log_hyperparams(vars(args))
 
 trainer = pl.Trainer(
-    max_epochs=config["max_epochs"],
+    max_epochs=args.epochs,
     gpus=GPU,
-    accumulate_grad_batches=config["accumulate_grad_batches"],
-    gradient_clip_val=GRAD_CLIP,
+    accumulate_grad_batches=args.accum_grad,
+    gradient_clip_val=args.grad_clip,
     logger=logger,
 )
 

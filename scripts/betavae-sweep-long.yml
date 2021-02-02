@@ -1,0 +1,34 @@
+name: betavae-sweep-long
+description: Narrowing down on hyperparameter space and optimizing the model
+program: train_betavae.py
+method: bayes
+early_terminate:
+        type: hyperband
+        min_iter: 5
+metric:
+        name: val_recon_loss
+        goal: minimize
+parameters:
+        epochs:
+                distribution: q_normal
+                mu: 100
+                sigma: 30
+        beta:
+                distribution: categorical
+                values: [1., 2., 4., 6.]
+        lr:
+                distribution: log_uniform
+                max: -7.00
+                min: -9.210
+        weight_decay:
+                min: 0.
+                max: 1e-3
+        activation:
+                distribution: categorical
+                values: 
+                - elu
+                - silu
+                - tanh
+                - prelu
+        dropout:
+                value: 0.

@@ -1,0 +1,35 @@
+name: betavae-sweep-fast
+description: Seeing what basic elements affect the VAE models most
+program: train_betavae.py
+method: bayes
+early_terminate:
+        type: hyperband
+        min_iter: 5
+metric:
+        name: val_recon_loss
+        goal: minimize
+parameters:
+        epochs:
+                min: 10
+                max: 50
+        beta:
+                distribution: categorical
+                values: [0.5, 1., 2., 3., 4., 5., 6.]
+        lr:
+                distribution: log_uniform
+                max: -4.605
+                min: -9.210
+        weight_decay:
+                min: 0.
+                max: 1e-3
+        activation:
+                distribution: categorical
+                values: 
+                - elu
+                - silu
+                - relu
+                - tanh
+                - prelu
+        dropout:
+                distribution: categorical
+                values: [0., 0.1, 0.2, 0.3, 0.4]
