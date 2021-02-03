@@ -27,7 +27,7 @@ class AddNoise(object):
     def __call__(self, X: np.ndarray) -> np.ndarray:
         # make sure to downcast the image, otherwise half and normal
         # precision will not work
-        X = X / X.max()
+        X = X / (X.max())
         # flip a coin to determine Gaussian or Poisson noise
         if np.random.rand() >= 0.5:
             output = random_noise(X, "gaussian", clip=True, mean=self.mean, var=self.var)

@@ -1,15 +1,17 @@
-from typing import Dict, List
+from typing import Dict, List, Union, Iterable
 
 import torch
 import pytorch_lightning as pl
 import wandb
 import torchvision
+import numpy as np
 from torch import nn
 from torch.nn import functional as F
+from torch.utils.data import DataLoader
 
 from dii.models import layers
-from dii.models.unet import SkimUNet, UnetEncoder, UnetDecoder
-from dii.models.resnet import resnet18_encoder, resnet18_decoder
+from dii.models.unet import UnetEncoder, UnetDecoder
+from dii.pipeline import datautils, transforms
 from pl_bolts.models.vision import PixelCNN
 
 
@@ -226,6 +228,14 @@ class AutoEncoder(pl.LightningModule):
         split_true: bool = False,
         activation: str = "relu",
         dropout: float = 0.0,
+        pretraining: bool = False,
+        train_seed: int = 42,
+        test_seed: int = 1923,
+        n_workers: int = 8,
+        batch_size: int = 64,
+        h5_path: Union[None, str] = None,
+        train_indices: Union[np.ndarray, Iterable, None] = None,
+        test_indices: Union[np.ndarray, Iterable, None] = None,
         **kwargs,
     ):
         super().__init__()
@@ -236,6 +246,16 @@ class AutoEncoder(pl.LightningModule):
         self.split_true = split_true
         self.apply(initialize_weights)
         self.metric = nn.BCEWithLogitsLoss()
+        self.pretraining = pretraining
+        self.train_settings = {
+            "train_seed": train_seed,
+            "test_seed": test_seed,
+            "n_workers": n_workers,
+            "batch_size": batch_size,
+            "train_indices": train_indices,
+            "test_indices": test_indices
+        }
+        self.h5_path = h5_path
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -248,10 +268,15 @@ class AutoEncoder(pl.LightningModule):
         return optimizer
 
     def step(self, batch, batch_idx):
-        # ignore the mask and the unsplit images
-        X, Y, _, unsplit = batch
+        # for pretraining, we want the model to learn the noisefree stuffs
+        if self.pretraining:
+            X = batch
+            Y = torch.clone(X)
+        else:
+            # ignore the mask and the unsplit images
+            X, Y, _, unsplit = batch
         pred_Y = self(X)
-        if self.split_true:
+        if self.split_true and not self.pretraining:
             loss = self.metric(pred_Y, unsplit.permute(0, 2, 1, 3))
             collapsed = pred_Y.sum(1).unsqueeze(1)
             loss += self.metric(collapsed, Y)
@@ -294,6 +319,44 @@ class AutoEncoder(pl.LightningModule):
                 "input": wandb.Image(x.float()),
             }
         )
+
+    def train_dataloader(self) -> DataLoader:
+        train_indices = self.train_settings.get("train_indices")
+        train_seed = self.train_settings.get("train_seed")
+        batch_size = self.train_settings.get("batch_size")
+        n_workers = self.train_settings.get("n_workers")
+        if not self.pretraining:
+            dataset_type = datautils.CompositeH5Dataset
+            target = "projection"
+            transform = transforms.projection_pipeline
+        else:
+            dataset_type = datautils.H5Dataset
+            target = "true"
+            transform = transforms.central_pipeline
+        dataset = dataset_type(
+            self.h5_path, target, indices=train_indices, seed=train_seed, transform=transform
+        )
+        loader = DataLoader(dataset, batch_size=batch_size, num_workers=n_workers)
+        return loader
+
+    def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
+        test_indices = self.train_settings.get("test_indices")
+        test_seed = self.train_settings.get("test_seed")
+        batch_size = self.train_settings.get("batch_size")
+        n_workers = self.train_settings.get("n_workers")
+        if not self.pretraining:
+            dataset_type = datautils.CompositeH5Dataset
+            target = "projection"
+            transform = transforms.projection_pipeline
+        else:
+            dataset_type = datautils.H5Dataset
+            target = "true"
+            transform = transforms.central_pipeline
+        dataset = dataset_type(
+            self.h5_path, target, indices=test_indices, seed=test_seed, transform=transform
+        )
+        loader = DataLoader(dataset, batch_size=batch_size, num_workers=n_workers)
+        return loader
 
 
 class UNetAutoEncoder(AutoEncoder):
@@ -401,6 +464,14 @@ class VAE(AutoEncoder):
         split_true: bool = False,
         activation: str = "relu",
         dropout: float = 0.0,
+        pretraining: bool = False,
+        train_seed: int = 42,
+        test_seed: int = 1923,
+        n_workers: int = 8,
+        batch_size: int = 64,
+        h5_path: Union[None, str] = None,
+        train_indices: Union[np.ndarray, Iterable, None] = None,
+        test_indices: Union[np.ndarray, Iterable, None] = None,
         **kwargs,
     ):
         super().__init__(
@@ -412,6 +483,14 @@ class VAE(AutoEncoder):
             split_true,
             activation,
             dropout,
+            pretraining,
+            train_seed,
+            test_seed,
+            n_workers,
+            batch_size,
+            h5_path,
+            train_indices,
+            test_indices,
             **kwargs,
         )
         self.fc_mu = nn.Linear(latent_dim, z_dim)
@@ -439,9 +518,14 @@ class VAE(AutoEncoder):
         return p, q, z
 
     def step(self, batch, batch_idx):
-        X, Y, _, unsplit = batch
+        if not self.pretraining:
+            X, Y, _, unsplit = batch
+        # don't use the noisy images for pretraining
+        else:
+            X = batch
+            Y = torch.clone(X)
         z, pred_Y, p, q = self._run_step(X)
-        if self.split_true:
+        if self.split_true and not self.pretraining:
             recon_loss = self.metric(pred_Y, unsplit)
         else:
             recon_loss = self.metric(pred_Y, Y)

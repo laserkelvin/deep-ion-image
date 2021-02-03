@@ -86,7 +86,7 @@ def generate_image(
 
 
 def create_ion_image_composite(
-    filepath: str, n_images=300000, dim=500, max_sigma=50.0, seed=42, n_jobs=1
+    filepath: str, n_images=300000, dim=500, sigma_mu=5., sigma_sigma=1., seed=42, n_jobs=1
 ) -> np.ndarray:
     logger.add("LOG")
     logger.info(f"Random seed: {seed}")
@@ -94,7 +94,12 @@ def create_ion_image_composite(
     rng = np.random.default_rng(seed)
     # generate the range of beta parameters -1 to +2.
     betas = rng.uniform(-1.0, 2.0, size=n_images)
-    sigma = rng.uniform(0.1, max_sigma, size=n_images)
+    # sigma = rng.uniform(0.1, max_sigma, size=n_images)
+    # for the spread in velocity, we don't want to have insanely
+    # blurry ones. Typically we care more about the sharp images.
+    sigma = np.abs(rng.normal(sigma_mu, sigma_sigma, size=n_images))
+    replacements = (sigma <= 0.7).sum()
+    sigma[sigma <= 0.7] = rng.uniform(0.8, 5., size=replacements)
     center = dim // 2
     mu = rng.uniform(0.0, center * 0.9, size=n_images)
     h5_file = h5py.File(filepath, mode="a")
