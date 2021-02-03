@@ -3,6 +3,7 @@ from typing import Tuple, Union, Iterable
 import h5py
 import torch
 import numpy as np
+import pytorch_lightning as pl
 from torch.utils import data
 from torchvision.transforms import Compose, ToTensor
 
@@ -42,6 +43,8 @@ class H5Dataset(data.Dataset):
         key: str,
         transform: Union[None, Iterable, "Compose"] = None,
         target_transform: Union[None, Iterable, "Compose"] = None,
+        indices: Union[None, np.ndarray] = None,
+        seed: Union[None, int] = None,
     ):
         """
         Instantiate the H5Dataset object, with the necessary arguments `path` and `key`
@@ -81,16 +84,20 @@ class H5Dataset(data.Dataset):
                 self.target_transform = target_transform
         with h5py.File(self.file_path, "r") as file:
             self.dataset_len = len(file[self.key])
+        self.indices = indices
+        self.rng = np.random.default_rng(seed)
 
     def __getitem__(self, index: int) -> torch.Tensor:
         if self.dataset is None:
             self.dataset = h5py.File(self.file_path, "r")[self.key]
+        index = self.rng.choice(self.indices)
         X = np.array(self.dataset[index])
         # if we have a transform pipeline, run it
         if self.transform:
             return self.transform(X)
-        X_max = X.max()
-        return X / X_max
+        # return the array four times to be consistent
+        # with the composite loader
+        return (X, X, X, X)
 
     def __len__(self):
         return self.dataset_len
@@ -135,7 +142,6 @@ class CompositeH5Dataset(H5Dataset):
             Random seed to use for the image generation, by default None
         """
         super().__init__(path, key, transform, target_transform)
-        self.seed = seed
         self.scale = scale
         self.indices = None
         # prescribed indices specify which images correspond to training
@@ -178,11 +184,11 @@ class CompositeH5Dataset(H5Dataset):
         distances = h5py.File(self.file_path, "r")["centers"]
         # get the number of images to compose with, sampled from an exponential
         # decay distribution
-        n_composites = int(np.random.exponential(self.scale) + 1)
+        n_composites = int(self.rng.exponential(self.scale) + 1)
         if n_composites > self.max_composites:
             n_composites = self.max_composites
         # choose the images randomly
-        chosen = np.random.choice(self.indices, replace=False, size=n_composites)
+        chosen = self.rng.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
             chosen = sorted(chosen)
         centers = np.array(distances[chosen])
