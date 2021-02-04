@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from dii.models import layers
 from dii.models.unet import UnetEncoder, UnetDecoder
 from dii.pipeline import datautils, transforms
+from dii.visualization.visualize import get_input_gradients
 from pl_bolts.models.vision import PixelCNN
 
 
@@ -19,7 +20,7 @@ def initialize_weights(m):
     for name, parameter in m.named_parameters():
         if "norm" not in name:
             try:
-                nn.init.xavier_uniform_(parameter)
+                nn.init.kaiming_uniform_(parameter, nonlinearity="relu")
             except:
                 pass
 
@@ -69,32 +70,6 @@ class BaseDecoder(nn.Module):
             ),
             layers.TransposeDecoderBlock(
                 8, 1, 4, activation=nn.Sigmoid(), batch_norm=False, stride=1
-            ),
-        )
-
-    def forward(self, X: torch.Tensor):
-        output = self.layers(X)
-        return output
-
-
-class UpsampleDecoder(nn.Module):
-    def __init__(self, dropout=0.0):
-        super().__init__()
-        self.layers = nn.Sequential(
-            layers.DecoderBlock(256, 128, 3, padding=2, upsample_size=4, reflection=2),
-            layers.DecoderBlock(128, 64, 3, padding=1, reflection=1),
-            layers.DecoderBlock(64, 48, 5, padding=2, upsample_size=2),
-            layers.DecoderBlock(48, 24, 3, reflection=1),
-            layers.DecoderBlock(24, 12, 3, padding=1, reflection=1),
-            layers.DecoderBlock(12, 8, 5, upsample_size=2),
-            layers.DecoderBlock(
-                8,
-                1,
-                3,
-                activation=nn.Sigmoid(),
-                batch_norm=False,
-                upsample_size=1,
-                padding=1,
             ),
         )
 
@@ -253,7 +228,7 @@ class AutoEncoder(pl.LightningModule):
             "n_workers": n_workers,
             "batch_size": batch_size,
             "train_indices": train_indices,
-            "test_indices": test_indices
+            "test_indices": test_indices,
         }
         self.h5_path = h5_path
 
@@ -334,7 +309,11 @@ class AutoEncoder(pl.LightningModule):
             target = "true"
             transform = transforms.central_pipeline
         dataset = dataset_type(
-            self.h5_path, target, indices=train_indices, seed=train_seed, transform=transform
+            self.h5_path,
+            target,
+            indices=train_indices,
+            seed=train_seed,
+            transform=transform,
         )
         loader = DataLoader(dataset, batch_size=batch_size, num_workers=n_workers)
         return loader
@@ -353,7 +332,11 @@ class AutoEncoder(pl.LightningModule):
             target = "true"
             transform = transforms.central_pipeline
         dataset = dataset_type(
-            self.h5_path, target, indices=test_indices, seed=test_seed, transform=transform
+            self.h5_path,
+            target,
+            indices=test_indices,
+            seed=test_seed,
+            transform=transform,
         )
         loader = DataLoader(dataset, batch_size=batch_size, num_workers=n_workers)
         return loader
@@ -456,11 +439,11 @@ class VAE(AutoEncoder):
         self,
         in_channels: int,
         out_channels: int,
-        beta=4,
-        latent_dim=64,
-        z_dim=64,
-        lr=0.001,
-        weight_decay: float = 0.,
+        beta: float = 4.0,
+        latent_dim: int = 64,
+        z_dim: int = 64,
+        lr: float = 1e-3,
+        weight_decay: float = 0.0,
         split_true: bool = False,
         activation: str = "relu",
         dropout: float = 0.0,
@@ -517,6 +500,18 @@ class VAE(AutoEncoder):
         z = q.rsample()
         return p, q, z
 
+    def _vae_loss(self, Y, pred_Y, z, p, q):
+        recon_loss = self.metric(pred_Y, Y)
+        log_qz = q.log_prob(z)
+        log_pz = p.log_prob(z)
+
+        kl = log_qz - log_pz
+        kl = kl.mean()
+        kl *= self.beta
+        loss = recon_loss + kl
+        logs = {"recon_loss": recon_loss, "kl": kl, "loss": loss}
+        return loss, logs
+
     def step(self, batch, batch_idx):
         if not self.pretraining:
             X, Y, _, unsplit = batch
@@ -524,25 +519,19 @@ class VAE(AutoEncoder):
         else:
             X = batch
             Y = torch.clone(X)
+            unsplit = None
         z, pred_Y, p, q = self._run_step(X)
         if self.split_true and not self.pretraining:
-            recon_loss = self.metric(pred_Y, unsplit)
+            target = unsplit
         else:
-            recon_loss = self.metric(pred_Y, Y)
-
+            target = Y
+        # compute losses and create a dictionary for logging
+        loss, logs = self._vae_loss(target, pred_Y, z, p, q)
         images = list()
         for tensor in [X, Y, pred_Y]:
             images.append(tensor[0].cpu().detach())
-
-        log_qz = q.log_prob(z)
-        log_pz = p.log_prob(z)
-
-        kl = log_qz - log_pz
-        kl = kl.mean()
-        kl *= self.beta
-
-        loss = kl + recon_loss
-        logs = {"recon_loss": recon_loss, "kl": kl, "loss": loss, "samples": images}
+        # add sample images to logging
+        logs["samples"] = images
         return loss, logs
 
     def forward(self, x):
@@ -556,16 +545,16 @@ class VAE(AutoEncoder):
         loss, logs = outputs[-1]
         images = logs.get("samples")
         x, y, pred_y = images
-        X = x.repeat((10, 1, 1, 1)).cuda()
+        X = x.repeat((16, 1, 1, 1)).cuda()
         with torch.no_grad():
             samples = self(X).cpu()
-            sample_grid = torchvision.utils.make_grid(samples)
+            sample_grid = torchvision.utils.make_grid(samples, nrow=4)
         self.logger.experiment.log(
             {
                 "target": wandb.Image(y.float()),
                 "predicted": wandb.Image(pred_y.float()),
                 "input": wandb.Image(x.float()),
-                "samples": wandb.Image(sample_grid)
+                "samples": wandb.Image(sample_grid),
             }
         )
 
@@ -585,3 +574,327 @@ class PixelCNNAutoEncoder(AutoEncoder):
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.model(X)
+
+
+class AEGAN(AutoEncoder):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        latent_dim: int = 128,
+        lr: float = 1e-3,
+        weight_decay: float = 0.,
+        split_true: bool = False,
+        activation: str = "prelu",
+        dropout: float = 0.,
+        train_seed: int = 42,
+        test_seed: int = 1923,
+        n_workers: int = 8,
+        batch_size: int = 64,
+        h5_path: Union[None, str] = None,
+        train_indices: Union[np.ndarray, Iterable, None] = None,
+        test_indices: Union[np.ndarray, Iterable, None] = None,
+        training: bool = True,
+        **kwargs,
+    ):
+        super().__init__(
+            in_channels,
+            out_channels,
+            latent_dim=latent_dim,
+            lr=lr,
+            weight_decay=weight_decay,
+            split_true=split_true,
+            activation=activation,
+            dropout=dropout,
+            pretraining=False,
+            train_seed=train_seed,
+            test_seed=test_seed,
+            n_workers=n_workers,
+            batch_size=batch_size,
+            h5_path=h5_path,
+            train_indices=train_indices,
+            test_indices=test_indices,
+            **kwargs,
+        )
+        self.autoencoder = AutoEncoder(in_channels,
+            out_channels,
+            latent_dim=latent_dim,
+            lr=lr,
+            weight_decay=weight_decay,
+            split_true=split_true,
+            activation=activation,
+            dropout=dropout,
+            pretraining=False,
+            train_seed=train_seed,
+            test_seed=test_seed,
+            n_workers=n_workers,
+            batch_size=batch_size,
+            h5_path=h5_path,
+            train_indices=train_indices,
+            test_indices=test_indices,
+            **kwargs,)
+        # for training, we'll use a discriminator too
+        if training:
+            self.discriminator = Encoder(in_channels, latent_dim=1, activation=activation, dropout=dropout)
+            self.discrim_metric = nn.BCEWithLogitsLoss()
+            # initialize weights
+            self.encoder.apply(initialize_weights)
+            self.decoder.apply(initialize_weights)
+            self.discriminator.apply(initialize_weights)
+        else:
+            self.discriminator = None
+        self.save_hyperparameters()
+
+    @staticmethod
+    def _weights_init(m):
+        classname = m.__class__.__name__
+        if classname.find("Conv") != -1:
+            torch.nn.init.normal_(m.weight, 0.0, 0.02)
+        elif classname.find("BatchNorm") != -1:
+            torch.nn.init.normal_(m.weight, 1.0, 0.02)
+            torch.nn.init.zeros_(m.bias)
+
+    def configure_optimizers(self):
+        lr, weight_decay = self.hparams.lr, self.hparams.weight_decay
+        opt_disc = torch.optim.Adam(self.discriminator.parameters(), lr=lr, weight_decay=weight_decay)
+        opt_gen = torch.optim.Adam(self.autoencoder.parameters(), lr=lr, weight_decay=weight_decay)
+        return [opt_disc, opt_gen], []
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return self.autoencoder(X)
+
+    def _disc_loss(self, X: torch.Tensor, Y: torch.Tensor):
+        # training on real data first
+        real_pred = self.discriminator(Y)
+        real_ones = torch.ones_like(real_pred)
+        real_loss = self.discrim_metric(real_pred, real_ones)
+
+        # now run the VAE model to generate an image
+        samples = self(X)
+        fake_pred = self.discriminator(samples)
+        fake_zeros = torch.zeros_like(fake_pred)
+        fake_loss = self.discrim_metric(fake_pred, fake_zeros)
+
+        disc_loss = fake_loss + real_loss
+        logs = {"discriminator/fake": fake_loss, "discriminator/real": real_loss, "discriminator/combined": disc_loss}
+        return disc_loss, logs
+
+    def _disc_step(self, X: torch.Tensor, Y: torch.Tensor):
+        disc_loss = self._disc_loss(X, Y)
+        return disc_loss
+
+    def _gen_loss(self, X: torch.Tensor, Y: torch.Tensor):
+        pred_Y = self.autoencoder(X)
+        recon_loss = self.metric(pred_Y, Y)
+        fake_pred = self.discriminator(pred_Y)
+        fake_ones = torch.ones_like(fake_pred)
+        # log the D(G(X)) loss - i.e. feedback on how the image is bad
+        gen_loss = self.discrim_metric(fake_pred, fake_ones)
+        loss = gen_loss + recon_loss
+        images = list()
+        for tensor in [X, Y, pred_Y]:
+            images.append(tensor[0].cpu().detach())
+        logs = {
+            "generator/fool": gen_loss,
+            "generator/recon": recon_loss,
+            "generator/combined": loss,
+            "samples": images
+        }
+        return loss, logs
+
+    def _gen_step(self, X, Y):
+        gen_loss = self._gen_loss(X, Y)
+        return gen_loss
+
+    def training_step(self, batch, batch_idx, optimizer_idx):
+        X, Y, _, _ = batch
+        loss, log = None, None
+        # update the discriminator
+        if optimizer_idx == 0 and self.current_epoch >= 5:
+            loss, log = self._disc_step(X, Y)
+        # update the generator
+        if optimizer_idx == 1:
+            loss, log = self._gen_step(X, Y)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        X, Y, _, _ = batch
+        gen_loss, logs = self._gen_loss(X, Y)
+        return gen_loss, logs
+
+    def validation_epoch_end(self, outputs):
+        _, logs = outputs[-1]
+        images = logs.get("samples")
+        x, y, pred_y = images
+        self.logger.experiment.log(
+            {
+                "target": wandb.Image(y.float()),
+                "predicted": wandb.Image(pred_y.float()),
+                "input": wandb.Image(x.float()),
+            }
+        )
+
+
+class VAEGAN(AutoEncoder):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        beta: float = 4.,
+        latent_dim: int = 128,
+        z_dim: int = 128,
+        lr: float = 1e-3,
+        weight_decay: float = 0.,
+        split_true: bool = False,
+        activation: str = "prelu",
+        dropout: float = 0.,
+        train_seed: int = 42,
+        test_seed: int = 1923,
+        n_workers: int = 8,
+        batch_size: int = 64,
+        h5_path: Union[None, str] = None,
+        train_indices: Union[np.ndarray, Iterable, None] = None,
+        test_indices: Union[np.ndarray, Iterable, None] = None,
+        training: bool = True,
+        **kwargs,
+    ):
+        super().__init__(
+            in_channels,
+            out_channels,
+            beta=beta,
+            latent_dim=latent_dim,
+            z_dim=z_dim,
+            lr=lr,
+            weight_decay=weight_decay,
+            split_true=split_true,
+            activation=activation,
+            dropout=dropout,
+            pretraining=False,
+            train_seed=train_seed,
+            test_seed=test_seed,
+            n_workers=n_workers,
+            batch_size=batch_size,
+            h5_path=h5_path,
+            train_indices=train_indices,
+            test_indices=test_indices,
+            **kwargs,
+        )
+        self.autoencoder = VAE(in_channels,
+            out_channels,
+            beta=beta,
+            latent_dim=latent_dim,
+            z_dim=z_dim,
+            lr=lr,
+            weight_decay=weight_decay,
+            split_true=split_true,
+            activation=activation,
+            dropout=dropout,
+            pretraining=False,
+            train_seed=train_seed,
+            test_seed=test_seed,
+            n_workers=n_workers,
+            batch_size=batch_size,
+            h5_path=h5_path,
+            train_indices=train_indices,
+            test_indices=test_indices,
+            **kwargs,)
+        # for training, we'll use a discriminator too
+        if training:
+            self.discriminator = Encoder(in_channels, latent_dim=1, activation=activation, dropout=dropout)
+            self.discrim_metric = nn.BCEWithLogitsLoss()
+            # initialize weights
+            self.encoder.apply(self._weights_init)
+            self.decoder.apply(self._weights_init)
+            self.discriminator.apply(self._weights_init)
+        else:
+            self.discriminator = None
+        self.save_hyperparameters()
+
+    @staticmethod
+    def _weights_init(m):
+        classname = m.__class__.__name__
+        if classname.find("Conv") != -1:
+            torch.nn.init.normal_(m.weight, 0.0, 0.02)
+        elif classname.find("BatchNorm") != -1:
+            torch.nn.init.normal_(m.weight, 1.0, 0.02)
+            torch.nn.init.zeros_(m.bias)
+
+    def configure_optimizers(self):
+        lr, weight_decay = self.hparams.lr, self.hparams.weight_decay
+        opt_disc = torch.optim.Adam(self.discriminator.parameters(), lr=lr, weight_decay=weight_decay)
+        opt_gen = torch.optim.Adam(self.autoencoder.parameters(), lr=lr, weight_decay=weight_decay)
+        return [opt_disc, opt_gen], []
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return self.autoencoder(X)
+
+    def _disc_loss(self, X: torch.Tensor, Y: torch.Tensor):
+        # training on real data first
+        real_pred = self.discriminator(Y)
+        real_ones = torch.ones_like(real_pred)
+        real_loss = self.discrim_metric(real_pred, real_ones)
+
+        # now run the VAE model to generate an image
+        samples = self(X)
+        fake_pred = self.discriminator(samples)
+        fake_zeros = torch.zeros_like(fake_pred)
+        fake_loss = self.discrim_metric(fake_pred, fake_zeros)
+
+        disc_loss = fake_loss + real_loss
+        logs = {"discriminator/fake": fake_loss, "discriminator/real": real_loss, "discriminator/combined": disc_loss}
+        return disc_loss, logs
+
+    def _disc_step(self, X: torch.Tensor, Y: torch.Tensor):
+        disc_loss = self._disc_loss(X, Y)
+        return disc_loss
+
+    def _gen_loss(self, X: torch.Tensor, Y: torch.Tensor):
+        z, pred_images, p, q = self.autoencoder._run_step(X)
+        vae_loss, logs = self.autoencoder._vae_loss(Y, pred_images, z, p, q)
+        fake_pred = self.discriminator(pred_images)
+        fake_ones = torch.ones_like(fake_pred)
+        gen_loss = self.discrim_metric(fake_pred, fake_ones)
+        # log the D(G(X)) loss - i.e. feedback on how the image is bad
+        logs["generator/fool"] = gen_loss
+        images = list()
+        for tensor in [X, Y, pred_images]:
+            images.append(tensor[0].cpu().detach())
+        logs["samples"] = images
+        return gen_loss, logs
+
+    def _gen_step(self, X, Y):
+        gen_loss = self._gen_loss(X, Y)
+        return gen_loss
+
+    def training_step(self, batch, batch_idx, optimizer_idx):
+        X, Y, _, _ = batch
+        loss, log = None, None
+        # update the discriminator
+        if optimizer_idx == 0:
+            loss, log = self._disc_step(X, Y)
+        # update the generator
+        if optimizer_idx == 1:
+            loss, log = self._gen_step(X, Y)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        X, Y, _, _ = batch
+        gen_loss, logs = self._gen_loss(X, Y)
+        return gen_loss, logs
+
+    def validation_epoch_end(self, outputs):
+        _, logs = outputs[-1]
+        images = logs.get("samples")
+        x, y, pred_y = images
+        X = x.repeat((16, 1, 1, 1)).cuda()
+        with torch.no_grad():
+            samples = self.autoencoder(X).cpu()
+            sample_grid = torchvision.utils.make_grid(samples, nrow=4)
+        self.logger.experiment.log(
+            {
+                "target": wandb.Image(y.float()),
+                "predicted": wandb.Image(pred_y.float()),
+                "input": wandb.Image(x.float()),
+                "samples": wandb.Image(sample_grid),
+            }
+        )

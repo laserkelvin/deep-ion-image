@@ -28,11 +28,15 @@ class AddNoise(object):
         # make sure to downcast the image, otherwise half and normal
         # precision will not work
         X = X / (X.max())
+        dice = np.random.rand()
         # flip a coin to determine Gaussian or Poisson noise
-        if np.random.rand() >= 0.5:
+        if dice <= 0.33:
             output = random_noise(X, "gaussian", clip=True, mean=self.mean, var=self.var)
-        else:
+        elif dice >= 0.66:
             output = random_noise(X, "poisson", clip=True)
+        # don't add noise
+        else:
+            output = X
         return output.astype(np.float32)
 
 
