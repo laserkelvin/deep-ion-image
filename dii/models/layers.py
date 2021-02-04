@@ -35,17 +35,21 @@ class DecoderBlock(nn.Module):
         self,
         in_channels,
         out_channels,
-        conv_kernel,
+        kernel_size,
         dropout=0.0,
         activation=nn.ReLU,
         upsample_size=2,
         batch_norm=True,
         reflection=1,
+        padding=0,
         **kwargs
     ):
         super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, conv_kernel, **kwargs)
-        self.activation = activation()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, **kwargs)
+        if activation is not None:
+            self.activation = activation()
+        else:
+            self.activation = None
         if batch_norm:
             self.norm = nn.BatchNorm2d(out_channels)
         else:
@@ -104,6 +108,7 @@ class ResidualBlock(nn.Module):
         input_channels,
         num_channels,
         use_1x1conv=False,
+        kernel_size=3,
         stride=1,
         activation=nn.ReLU,
         pool: int = 0,
@@ -119,7 +124,7 @@ class ResidualBlock(nn.Module):
                 nn.Conv2d(
                     input_channels,
                     num_channels,
-                    kernel_size=3,
+                    kernel_size=kernel_size,
                     padding=1,
                     stride=stride,
                 ),
@@ -129,7 +134,7 @@ class ResidualBlock(nn.Module):
                 nn.Conv2d(
                     num_channels,
                     num_channels,
-                    kernel_size=3,
+                    kernel_size=kernel_size,
                     padding=1,
                 ),
                 nn.BatchNorm2d(num_channels),
@@ -152,7 +157,7 @@ class ResidualBlock(nn.Module):
         Y = self.conv(X)
         if self.skip:
             X = self.skip(X)
-        Y.add_(X)
+            Y.add_(X)
         if self.activation:
             Y = self.activation(Y)
         if self.pool:

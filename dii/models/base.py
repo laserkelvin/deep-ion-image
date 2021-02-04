@@ -112,7 +112,8 @@ class Encoder(nn.Module):
                         in_channels,
                         out_channels,
                         pool=2,
-                        use_1x1conv=True,
+                        kernel_size=7,
+                        use_1x1conv=False,
                         activation=chosen_activation,
                         dropout=dropout,
                     )
@@ -123,12 +124,13 @@ class Encoder(nn.Module):
                         sizes[index - 1],
                         out_channels,
                         pool=2,
+                        kernel_size=3,
                         use_1x1conv=True,
                         activation=chosen_activation,
                         dropout=dropout,
                     )
                 )
-        model.extend([nn.Flatten(), nn.Linear(128 * 4 * 4, latent_dim)])
+        model.extend([nn.Flatten(), nn.Linear(128 * 3 * 3, latent_dim)])
         self.model = nn.Sequential(*model)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -144,7 +146,7 @@ class Decoder(nn.Module):
         dropout: float = 0.0,
     ):
         super().__init__()
-        sizes = [128, 64, 32, 16, 8, out_channels]
+        sizes = [128, 64, 32, 16, 8, 4, out_channels]
         self.fc = nn.Linear(latent_dim, sizes[0] * 4 * 4)
         # get a mapping of valid activation functions
         activation_maps = {
@@ -163,14 +165,15 @@ class Decoder(nn.Module):
             if index == 0:
                 pass
             # no activation for the last layer
-            elif index == len(sizes):
+            elif index == len(sizes) - 1:
                 model.append(
                     layers.DecoderBlock(
                         sizes[index - 1],
                         out_channels,
-                        3,
+                        kernel_size=7,
                         upsample_size=2,
                         activation=None,
+                        batch_norm=False,
                         dropout=dropout,
                     )
                 )
@@ -179,7 +182,7 @@ class Decoder(nn.Module):
                     layers.DecoderBlock(
                         sizes[index - 1],
                         out_channels,
-                        3,
+                        kernel_size=5,
                         upsample_size=2,
                         activation=chosen_activation,
                         dropout=dropout,

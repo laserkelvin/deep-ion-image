@@ -7,17 +7,17 @@ from torchsummary import summary
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, input_channels, num_channels,
+    def __init__(self, input_channels, num_channels, kernel_size=3,
                  use_1x1conv=False, stride=1, output=nn.ReLU, pool: int = 0, upsample: int = 0):
         super().__init__()
         layers = []
         if upsample != 0:
             layers.append(nn.Upsample(scale_factor=upsample, mode="bilinear"))
         layers.extend(
-            [nn.Conv2d(input_channels, num_channels, kernel_size=3, padding=1, stride=stride),
+            [nn.Conv2d(input_channels, num_channels, kernel_size=kernel_size, padding=1, stride=stride),
             nn.BatchNorm2d(num_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(num_channels, num_channels, kernel_size=3, padding=1,),
+            nn.Conv2d(num_channels, num_channels, kernel_size=kernel_size, padding=1,),
             nn.BatchNorm2d(num_channels)]
         )
         self.conv = nn.Sequential(*layers)
@@ -37,7 +37,7 @@ class ResidualBlock(nn.Module):
         Y = self.conv(X)
         if self.skip:
             X = self.skip(X)
-        Y.add_(X)
+            Y.add_(X)
         if self.output:
             Y = self.output(Y)
         if self.pool:
@@ -52,13 +52,13 @@ class Encoder(nn.Module):
         for index, out_channels in enumerate(sizes):
             if index == 0:
                 layers = [
-                    ResidualBlock(in_channels, out_channels, pool=2, use_1x1conv=True)
+                    ResidualBlock(in_channels, out_channels, kernel_size=7, pool=2, use_1x1conv=False)
                 ]
             else:
                 layers.append(
                     ResidualBlock(sizes[index - 1], out_channels, pool=2, use_1x1conv=True)
                 )
-        layers.extend([nn.Flatten(), nn.Linear(128 * 4 * 4, latent_dim)])
+        layers.extend([nn.Flatten(), nn.Linear(128 * 3 * 3, latent_dim)])
         self.model = nn.Sequential(*layers)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -68,20 +68,20 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, latent_dim: int, out_channels: int):
         super().__init__()
-        sizes = [128, 64, 32, 16, 8, out_channels]
+        sizes = [128, 64, 32, 16, 8, 4, out_channels]
         self.fc = nn.Linear(latent_dim, sizes[0] * 4 * 4, bias=False)
         model = list()
         for index, out_channels in enumerate(sizes):
             if index == 0:
                 pass
-            elif index == len(sizes):
+            elif index == len(sizes) - 1:
                 model.append(layers.DecoderBlock(
-                    sizes[index - 1], out_channels, 3, upsample_size=2, activation=None
+                    sizes[index - 1], out_channels, 7, upsample_size=2, activation=None, batch_norm=False,
                 ))
             else:
                 model.append(
                     layers.DecoderBlock(
-                        sizes[index - 1], out_channels, 3, upsample_size=2,
+                        sizes[index - 1], out_channels, 5, upsample_size=2,
                     )
                 )
         self.model = nn.Sequential(*model)
@@ -92,9 +92,11 @@ class Decoder(nn.Module):
 
 
 if __name__ == "__main__":
-    model = Encoder(1, 128)
-    print(summary(model, (1, 128, 128), device="cpu"))
-    model = Decoder(128 *4 * 4, 1)
-    print(summary(model, (128 * 4 * 4,), device="cpu"))
-    model = nn.Sequential(Encoder(1, 128), Decoder(128, 1))
+    #test = ResidualBlock(1, 128, kernel_size=7, pool=2, use_1x1conv=False)
+    #print(summary(test, (1, 128, 128), device="cpu"))
+    #model = Encoder(1, 128)
+    #print(summary(model, (1, 128, 128), device="cpu"))
+    #model = Decoder(128 *3 * 3, 1)
+    #print(summary(model, (128 * 3 * 3,), device="cpu"))
+    model = nn.Sequential(Encoder(1, 128), Decoder(128, 9))
     print(summary(model, (1, 128, 128), device="cpu"))
