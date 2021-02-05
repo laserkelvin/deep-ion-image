@@ -17,12 +17,15 @@ from pl_bolts.models.vision import PixelCNN
 
 
 def initialize_weights(m):
-    for name, parameter in m.named_parameters():
-        if "norm" not in name:
-            try:
-                nn.init.xavier_normal_(parameter)
-            except:
-                pass
+    if isinstance(m, nn.Conv2d):
+        # based on the original Kaiming paper, this helps deeper
+        # convolutions not vanish
+        nn.init.kaiming_normal_(m.weight)
+        m.bias.data.fill_(0.)
+    elif isinstance(m, nn.Linear):
+        nn.init.sparse_(m.weight, sparsity=0.05)
+    else:
+        pass
 
 
 class BaseEncoder(nn.Module):
@@ -105,9 +108,10 @@ class Encoder(nn.Module):
         if activation not in activation_maps:
             activation = "relu"
         chosen_activation = activation_maps.get(activation, "relu")
+        model = nn.ModuleList()
         for index, out_channels in enumerate(sizes):
             if index == 0:
-                model = [
+                model.append(
                     layers.ResidualBlock(
                         in_channels,
                         out_channels,
@@ -117,7 +121,7 @@ class Encoder(nn.Module):
                         activation=chosen_activation,
                         dropout=dropout,
                     )
-                ]
+                    )
             else:
                 model.append(
                     layers.ResidualBlock(
@@ -162,7 +166,7 @@ class Decoder(nn.Module):
         if activation not in activation_maps:
             activation = "relu"
         chosen_activation = activation_maps.get(activation, "relu")
-        model = list()
+        model = nn.ModuleList()
         for index, out_channels in enumerate(sizes):
             if index == 0:
                 pass
@@ -225,7 +229,7 @@ class AutoEncoder(pl.LightningModule):
         self.split_true = split_true
         self.apply(initialize_weights)
         self.metric = nn.BCELoss()
-        # self.metric = nn.MSELoss()
+        #self.metric = nn.MSELoss()
         self.pretraining = pretraining
         self.train_settings = {
             "train_seed": train_seed,
@@ -251,15 +255,7 @@ class AutoEncoder(pl.LightningModule):
     def _reconstruction_loss(self, pred_Y: torch.Tensor, Y: torch.Tensor):
         # compute the pixelwise loss
         pixelwise_loss = self.metric(pred_Y, Y)
-        # radial profile based loss, sum over channels and the
-        # image height/width/whatever
-        radial_pred, radial_Y = pred_Y.sum((1, 2)), Y.sum((1, 2))
-        # normalize the radial profiles to prevent insanity
-        radial_pred /= radial_pred.sum(-1).unsqueeze(-1)
-        radial_Y /= radial_Y.sum(-1).unsqueeze(-1)
-        radial_loss = F.mse_loss(radial_pred, radial_Y)
-        # give the loss as the combination of the two
-        loss = pixelwise_loss# + radial_loss
+        loss = pixelwise_loss
         return loss
 
     def step(self, batch, batch_idx):
@@ -462,7 +458,6 @@ class VAE(AutoEncoder):
         out_channels: int,
         beta: float = 4.0,
         latent_dim: int = 64,
-        z_dim: int = 64,
         lr: float = 1e-3,
         weight_decay: float = 0.0,
         split_true: bool = False,
@@ -497,14 +492,14 @@ class VAE(AutoEncoder):
             test_indices,
             **kwargs,
         )
-        self.fc_mu = nn.Linear(latent_dim, z_dim)
-        self.fc_logvar = nn.Linear(latent_dim, z_dim)
-        # in the event KLdiv goes to NaN, make sure weights are small
-        # nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
-        # nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
+        self.fc_mu = nn.Linear(latent_dim, latent_dim)
+        self.fc_logvar = nn.Linear(latent_dim, latent_dim)
         self.beta = beta
         self.latent_dim = latent_dim
         self.split_true = split_true
+        # in the event KLdiv goes to NaN, make sure weights are small
+        nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
+        nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
         self.apply(initialize_weights)
 
     def _run_step(self, x):
@@ -522,7 +517,7 @@ class VAE(AutoEncoder):
         return p, q, z
 
     def _vae_loss(self, Y, pred_Y, z, p, q):
-        recon_loss = self.metric(pred_Y, Y)
+        recon_loss = self._reconstruction_loss(pred_Y, Y)
         log_qz = q.log_prob(z)
         log_pz = p.log_prob(z)
 
@@ -550,7 +545,7 @@ class VAE(AutoEncoder):
         loss, logs = self._vae_loss(target, pred_Y, z, p, q)
         images = list()
         for tensor in [X, Y, pred_Y]:
-            images.append(tensor[0].cpu().detach())
+            images.append(tensor[0].detach().cpu())
         # add sample images to logging
         logs["samples"] = images
         return loss, logs
@@ -566,7 +561,7 @@ class VAE(AutoEncoder):
         loss, logs = outputs[-1]
         images = logs.get("samples")
         x, y, pred_y = images
-        X = x.repeat((16, 1, 1, 1)).cuda()
+        X = x.repeat((16, 1, 1, 1)).to(self.device)
         with torch.no_grad():
             samples = self(X).cpu()
             sample_grid = torchvision.utils.make_grid(samples, nrow=4)

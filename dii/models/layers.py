@@ -116,7 +116,7 @@ class ResidualBlock(nn.Module):
         dropout: float = 0.,
     ):
         super().__init__()
-        layers = []
+        layers = nn.ModuleList()
         if upsample != 0:
             layers.append(nn.Upsample(scale_factor=upsample, mode="bilinear"))
         layers.extend(
