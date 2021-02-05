@@ -10,15 +10,21 @@ metric:
         goal: minimize
 parameters:
         epochs:
-                min: 10
-                max: 50
+                distribution: q_normal
+                mu: 20
+                sigma: 5
         lr:
                 distribution: log_uniform
                 max: -4.605
                 min: -9.210
         weight_decay:
-                min: 0.
-                max: 1e-3
+                distribution: log_uniform
+                min: -9.
+                max: -6.905
+        grad_clip:
+                distribution: log_uniform
+                min: -9.
+                max: -0.7
         activation:
                 distribution: categorical
                 values: 
@@ -30,3 +36,6 @@ parameters:
         dropout:
                 distribution: categorical
                 values: [0., 0.1, 0.2, 0.3, 0.4]
+        latent_dim:
+                distribution: categorical
+                values: [8, 16, 32, 64, 128, 256, 512]

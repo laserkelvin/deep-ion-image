@@ -6,6 +6,7 @@ from torchvision import transforms as tf
 from PIL import Image, ImageFilter
 from scipy.ndimage.filters import gaussian_filter
 from skimage.util import random_noise
+from sklearn.preprocessing import MinMaxScaler
 
 
 class AbelProjection(object):
@@ -92,9 +93,10 @@ class Normalize(object):
     def __init__(self, eps: float = 1e-8):
         self.eps = eps
 
-    def __call__(self, X: torch.Tensor) -> torch.Tensor:
-        normalize = X.max() + self.eps
-        return X / normalize
+    def __call__(self, X: np.ndarray) -> np.ndarray:
+        floor, ceil = X.min(), X.max()
+        # clamp image to [0,1]
+        return (X - floor) / (ceil - floor + self.eps)
 
 # this is a pipeline that has been tested and is known to provide the "right" kind
 # of behaviour AFAIK
@@ -105,8 +107,8 @@ central_pipeline = tf.Compose(
         #tf.Resize((500,500)),
         #tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
         # BlurPIL(),
-        tf.ToTensor(),
         Normalize(),
+        tf.ToTensor(),
     ]
 )
 
@@ -115,9 +117,9 @@ projection_pipeline = tf.Compose(
         #tf.RandomAffine(
         #    0.0, translate=(0.05, 0.05), resample=Image.BICUBIC
         #),  # we move the 3D image around
-        # AddNoise(),
-        tf.ToTensor(),
+        AddNoise(),
         Normalize(),
+        tf.ToTensor(),
     ]
 )
 

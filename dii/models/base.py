@@ -174,7 +174,7 @@ class Decoder(nn.Module):
                         out_channels,
                         kernel_size=7,
                         upsample_size=2,
-                        activation=None,
+                        activation=nn.Sigmoid,
                         batch_norm=False
                     )
                 )
@@ -224,8 +224,8 @@ class AutoEncoder(pl.LightningModule):
         self.weight_decay = weight_decay
         self.split_true = split_true
         self.apply(initialize_weights)
-        # self.metric = nn.BCEWithLogitsLoss()
-        self.metric = nn.MSELoss()
+        self.metric = nn.BCELoss()
+        # self.metric = nn.MSELoss()
         self.pretraining = pretraining
         self.train_settings = {
             "train_seed": train_seed,

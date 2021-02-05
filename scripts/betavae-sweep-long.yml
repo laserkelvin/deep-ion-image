@@ -11,8 +11,8 @@ metric:
 parameters:
         epochs:
                 distribution: q_normal
-                mu: 100
-                sigma: 30
+                mu: 50
+                sigma: 10
         beta:
                 distribution: categorical
                 values: [1., 2., 4., 6.]
@@ -21,8 +21,13 @@ parameters:
                 max: -7.00
                 min: -9.210
         weight_decay:
-                min: 0.
-                max: 1e-3
+                distribution: log_uniform
+                max: -7.00
+                min: -15.00
+        grad_clip:
+                distribution: log_uniform
+                max: 0.
+                min: -7.00
         activation:
                 distribution: categorical
                 values: 
@@ -31,4 +36,5 @@ parameters:
                 - tanh
                 - prelu
         dropout:
-                value: 0.
+                distribution: categorical
+                values: [0., 0.1, 0.2, 0.3, 0.4]

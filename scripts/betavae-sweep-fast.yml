@@ -10,11 +10,12 @@ metric:
         goal: minimize
 parameters:
         epochs:
-                min: 10
-                max: 50
+                min: 5
+                max: 30
         beta:
-                distribution: categorical
-                values: [0.5, 1., 2., 3., 4., 5., 6.]
+                distribution: log_uniform
+                min: -4.60
+                max: 0.5
         lr:
                 distribution: log_uniform
                 max: -4.605
