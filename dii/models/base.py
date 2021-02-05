@@ -20,7 +20,7 @@ def initialize_weights(m):
     for name, parameter in m.named_parameters():
         if "norm" not in name:
             try:
-                nn.init.kaiming_uniform_(parameter, nonlinearity="relu")
+                nn.init.xavier_normal_(parameter)
             except:
                 pass
 
@@ -130,7 +130,9 @@ class Encoder(nn.Module):
                         dropout=dropout,
                     )
                 )
-        model.extend([nn.Flatten(), nn.Linear(128 * 3 * 3, latent_dim)])
+        model.extend(
+            [nn.Flatten(), nn.Linear(128 * 3 * 3, latent_dim)]
+            )
         self.model = nn.Sequential(*model)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -173,8 +175,7 @@ class Decoder(nn.Module):
                         kernel_size=7,
                         upsample_size=2,
                         activation=None,
-                        batch_norm=False,
-                        dropout=dropout,
+                        batch_norm=False
                     )
                 )
             else:
@@ -223,7 +224,8 @@ class AutoEncoder(pl.LightningModule):
         self.weight_decay = weight_decay
         self.split_true = split_true
         self.apply(initialize_weights)
-        self.metric = nn.BCEWithLogitsLoss()
+        # self.metric = nn.BCEWithLogitsLoss()
+        self.metric = nn.MSELoss()
         self.pretraining = pretraining
         self.train_settings = {
             "train_seed": train_seed,
@@ -234,6 +236,7 @@ class AutoEncoder(pl.LightningModule):
             "test_indices": test_indices,
         }
         self.h5_path = h5_path
+        self.save_hyperparameters() 
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -244,6 +247,20 @@ class AutoEncoder(pl.LightningModule):
             self.parameters(), self.lr, weight_decay=self.weight_decay
         )
         return optimizer
+
+    def _reconstruction_loss(self, pred_Y: torch.Tensor, Y: torch.Tensor):
+        # compute the pixelwise loss
+        pixelwise_loss = self.metric(pred_Y, Y)
+        # radial profile based loss, sum over channels and the
+        # image height/width/whatever
+        radial_pred, radial_Y = pred_Y.sum((1, 2)), Y.sum((1, 2))
+        # normalize the radial profiles to prevent insanity
+        radial_pred /= radial_pred.sum(-1).unsqueeze(-1)
+        radial_Y /= radial_Y.sum(-1).unsqueeze(-1)
+        radial_loss = F.mse_loss(radial_pred, radial_Y)
+        # give the loss as the combination of the two
+        loss = pixelwise_loss# + radial_loss
+        return loss
 
     def step(self, batch, batch_idx):
         # for pretraining, we want the model to learn the noisefree stuffs
@@ -257,14 +274,15 @@ class AutoEncoder(pl.LightningModule):
         if self.split_true and not self.pretraining:
             loss = self.metric(pred_Y, unsplit.permute(0, 2, 1, 3))
             collapsed = pred_Y.sum(1).unsqueeze(1)
-            loss += self.metric(collapsed, Y)
+            loss += self._reconstruction_loss(collapsed, Y)
             pred_Y = collapsed
         else:
-            loss = self.metric(pred_Y, Y)
+            loss = self._reconstruction_loss(pred_Y, Y)
         # get some images
         images = list()
+        index = np.random.randint(0, X.size(0))
         for tensor in [X, Y, pred_Y]:
-            images.append(tensor[0].cpu().detach())
+            images.append(tensor[index].cpu().detach())
         logs = {"recon_loss": loss, "samples": images}
         return loss, logs
 

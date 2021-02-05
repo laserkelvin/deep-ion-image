@@ -77,11 +77,12 @@ def generate_image(
     img = p_r * p_theta
     # normalize pixel intensities; add a small number to prevent
     # explosion
-    img /= (img.max() + 1e-9)
+    img /= img.sum()
     # now do the forward Abel transform to get the "experimental image"
     forward_abel = abel.Transform(
         img, direction="forward", method="hansenlaw"
     ).transform
+    forward_abel /= forward_abel.sum()
     return (img, forward_abel)
 
 
@@ -101,7 +102,7 @@ def create_ion_image_composite(
     replacements = (sigma <= 0.7).sum()
     sigma[sigma <= 0.7] = rng.uniform(0.8, 5., size=replacements)
     center = dim // 2
-    mu = rng.uniform(0.0, center * 0.9, size=n_images)
+    mu = rng.uniform(0.0, center * 0.8, size=n_images)
     h5_file = h5py.File(filepath, mode="a")
     beta_values = h5_file.create_dataset(
         "beta", (n_images,), dtype=np.float32, data=betas

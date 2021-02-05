@@ -93,8 +93,8 @@ class Normalize(object):
         self.eps = eps
 
     def __call__(self, X: torch.Tensor) -> torch.Tensor:
-        max_val = X.max()
-        return X / (max_val + self.eps)
+        normalize = X.max() + self.eps
+        return X / normalize
 
 # this is a pipeline that has been tested and is known to provide the "right" kind
 # of behaviour AFAIK
@@ -115,7 +115,7 @@ projection_pipeline = tf.Compose(
         #tf.RandomAffine(
         #    0.0, translate=(0.05, 0.05), resample=Image.BICUBIC
         #),  # we move the 3D image around
-        AddNoise(),
+        # AddNoise(),
         tf.ToTensor(),
         Normalize(),
     ]
