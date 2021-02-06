@@ -544,8 +544,9 @@ class VAE(AutoEncoder):
         # compute losses and create a dictionary for logging
         loss, logs = self._vae_loss(target, pred_Y, z, p, q)
         images = list()
+        index = np.random.randint(0, X.size(0))
         for tensor in [X, Y, pred_Y]:
-            images.append(tensor[0].detach().cpu())
+            images.append(tensor[index].detach().cpu())
         # add sample images to logging
         logs["samples"] = images
         return loss, logs
