@@ -114,7 +114,8 @@ class CompositeH5Dataset(H5Dataset):
         seed=None,
         indices=None,
         max_composites: int = 6,
-        mask_threshold: float = 0.3
+        mask_threshold: float = 0.3,
+        rng_type: str = "uniform"
     ):
         """
         Inheriting from `H5Dataset`, this version is purely stochastic by generating
@@ -143,6 +144,7 @@ class CompositeH5Dataset(H5Dataset):
         """
         super().__init__(path, key, transform, target_transform)
         self.scale = scale
+        self.rng_type = rng_type
         self.indices = None
         # prescribed indices specify which images correspond to training
         # testing and validation, etc
@@ -182,11 +184,22 @@ class CompositeH5Dataset(H5Dataset):
             self.dataset = h5py.File(self.file_path, "r")[self.key]
         self.target_dataset = h5py.File(self.file_path, "r")["true"]
         distances = h5py.File(self.file_path, "r")["centers"]
-        # get the number of images to compose with, sampled from an exponential
-        # decay distribution
-        n_composites = int(self.rng.exponential(self.scale) + 1)
+        # get the number of images to compose with
+        # sampled from an exponential decay distribution
+        if self.rng_type == "exponential":
+            n_composites = int(self.rng.exponential(self.scale) + 1)
+        # otherwise sample number of ion images uniformly
+        elif self.rng_type == "uniform":
+            n_composites = int(self.rng.uniform(1, self.max_composites))
+        # or with a Gaussian
+        else:
+            midpoint = self.max_composites // 2
+            n_composites = int(self.rng.normal(self.max_composites, 1.))
         if n_composites > self.max_composites:
             n_composites = self.max_composites
+        # scale the images by random amounts; shape of the rng is done
+        # to match the number of images and for elementwise multiplication
+        scaler = self.rng.uniform(0.5, 10., size=n_composites)[:,None,None]
         # choose the images randomly
         chosen = self.rng.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
@@ -194,8 +207,8 @@ class CompositeH5Dataset(H5Dataset):
         centers = np.array(distances[chosen])
         radial_sort = np.argsort(centers)
         # get the true central image and projections
-        true = np.array(self.target_dataset[chosen])[radial_sort]
-        projection = np.array(self.dataset[chosen])[radial_sort]
+        true = np.array(self.target_dataset[chosen])[radial_sort] * scaler
+        projection = np.array(self.dataset[chosen])[radial_sort] * scaler
         unsplit_true = np.copy(true)
         # if we have multiple images, flatten to a single composite
         if true.ndim == 3:
