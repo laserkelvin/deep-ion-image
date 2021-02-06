@@ -102,7 +102,7 @@ def create_ion_image_composite(
     replacements = (sigma <= 0.7).sum()
     sigma[sigma <= 0.7] = rng.uniform(0.8, 5., size=replacements)
     center = dim // 2
-    mu = rng.uniform(0.0, center * 0.8, size=n_images)
+    mu = rng.uniform(center * 0.1, center * 0.8, size=n_images)
     h5_file = h5py.File(filepath, mode="a")
     beta_values = h5_file.create_dataset(
         "beta", (n_images,), dtype=np.float32, data=betas
