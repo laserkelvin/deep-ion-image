@@ -94,6 +94,8 @@ class Encoder(nn.Module):
             activation = "relu"
         chosen_activation = activation_maps.get(activation, "relu")
         model = nn.ModuleList()
+        # for all but the first layer, use a 3x3 kernel with skip
+        # connection. The first layer uses a 7x7 kernel.
         for index, out_channels in enumerate(sizes):
             if index == 0:
                 model.append(
@@ -119,6 +121,9 @@ class Encoder(nn.Module):
                         dropout=dropout,
                     )
                 )
+        # the output layer image size is hardcoded because the first layer
+        # has a 7x7 kernel; alternatively we could pad the output of the
+        # last layer :P
         model.extend([nn.Flatten(), nn.Linear(128 * 3 * 3, latent_dim)])
         self.model = nn.Sequential(*model)
 
@@ -136,6 +141,7 @@ class Decoder(nn.Module):
     ):
         super().__init__()
         sizes = [128, 64, 32, 16, 8, 4, out_channels]
+        # the encoding to decoding fc layer is hardcoded
         self.fc = nn.Linear(latent_dim, sizes[0] * 4 * 4)
         # get a mapping of valid activation functions
         activation_maps = {
@@ -179,6 +185,7 @@ class Decoder(nn.Module):
         self.model = nn.Sequential(*model)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
+        # reshape the output of the FC layer into an "image"
         output = self.fc(X).view(-1, 128, 4, 4)
         return self.model(output)
 
@@ -230,8 +237,7 @@ class AutoEncoder(pl.LightningModule):
 
     def _reconstruction_loss(self, pred_Y: torch.Tensor, Y: torch.Tensor):
         # compute the pixelwise loss
-        pixelwise_loss = self.metric(pred_Y, Y)
-        loss = pixelwise_loss
+        loss = self.metric(pred_Y, Y)
         return loss
 
     def step(self, batch, batch_idx):
@@ -670,8 +676,8 @@ class AEGAN(AutoEncoder):
         return disc_loss, logs
 
     def _disc_step(self, X: torch.Tensor, Y: torch.Tensor):
-        disc_loss = self._disc_loss(X, Y)
-        return disc_loss
+        disc_loss, logs = self._disc_loss(X, Y)
+        return (disc_loss, logs)
 
     def _gen_loss(self, X: torch.Tensor, Y: torch.Tensor):
         pred_Y = self.autoencoder(X)
@@ -689,18 +695,23 @@ class AEGAN(AutoEncoder):
         return loss, logs
 
     def _gen_step(self, X, Y):
-        gen_loss = self._gen_loss(X, Y)
-        return gen_loss
+        gen_loss, logs = self._gen_loss(X, Y)
+        return (gen_loss, logs)
 
     def training_step(self, batch, batch_idx, optimizer_idx):
         X, Y, _, _ = batch
-        loss, log = None, None
+        loss, logs = None, None
         # update the discriminator
-        if optimizer_idx == 0 and self.current_epoch >= 5:
-            loss, log = self._disc_step(X, Y)
+        if optimizer_idx == 0:
+            loss, logs = self._disc_step(X, Y)
         # update the generator
         if optimizer_idx == 1:
-            loss, log = self._gen_step(X, Y)
+            loss, logs = self._gen_step(X, Y)
+        self.log_dict(
+            {f"train_{k}": v for k, v in logs.items() if "samples" not in k},
+            on_step=False,
+            on_epoch=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -712,7 +723,12 @@ class AEGAN(AutoEncoder):
         for tensor in [X, Y, pred_Y]:
             images.append(tensor[index].detach().cpu())
         logs["samples"] = images
-        return gen_loss, logs
+        self.log_dict(
+            {f"val_{k}": v for k, v in logs.items() if "samples" not in k},
+            on_step=False,
+            on_epoch=True,
+        )
+        return (gen_loss, logs)
 
     def validation_epoch_end(self, outputs):
         _, logs = outputs[-1]
