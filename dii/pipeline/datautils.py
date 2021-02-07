@@ -199,7 +199,7 @@ class CompositeH5Dataset(H5Dataset):
             n_composites = self.max_composites
         # scale the images by random amounts; shape of the rng is done
         # to match the number of images and for elementwise multiplication
-        scaler = self.rng.uniform(0.5, 10., size=n_composites)[:,None,None]
+        scaler = self.rng.uniform(0.5, 10., size=n_composites)[:,None,None].astype(np.float32)
         # choose the images randomly
         chosen = self.rng.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:

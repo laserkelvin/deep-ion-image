@@ -66,10 +66,10 @@ with h5py.File("../data/raw/128_ion_images.h5", "r") as h5_file:
     train_indices = np.array(h5_file["train"])
     test_indices = np.array(h5_file["test"])
 
-vae = AEGAN(train_indices=train_indices, test_indices=test_indices, **vars(args))
+model = AEGAN(train_indices=train_indices, test_indices=test_indices, **vars(args))
 
-logger = pl.loggers.WandbLogger(name="aegan", project="deep-ion-image")
-logger.watch(vae, log="all")
+logger = pl.loggers.WandbLogger(name="aegan", project="deep-ion-image", entity="team-brazil")
+logger.watch(model, log="all")
 logger.log_hyperparams(vars(args))
 
 trainer = pl.Trainer(
@@ -80,4 +80,9 @@ trainer = pl.Trainer(
     logger=logger,
 )
 
-trainer.fit(vae)
+trainer.fit(model)
+
+torch.save(model.cpu().state_dict(), "../models/aegan.pt")
+with open("../models/aegan.md", "w+") as write_file:
+    write_file.write(logger.version)
+

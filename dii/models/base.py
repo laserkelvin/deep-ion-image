@@ -498,9 +498,9 @@ class VAE(AutoEncoder):
         self.latent_dim = latent_dim
         self.split_true = split_true
         # in the event KLdiv goes to NaN, make sure weights are small
-        nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
-        nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
         self.apply(initialize_weights)
+        #nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
+        nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
 
     def _run_step(self, x):
         x = self.encoder(x)
@@ -652,8 +652,12 @@ class AEGAN(AutoEncoder):
             **kwargs,)
         # for training, we'll use a discriminator too
         if training:
-            self.discriminator = Encoder(in_channels, latent_dim=1, activation=activation, dropout=dropout)
-            self.discrim_metric = nn.BCEWithLogitsLoss()
+            self.discriminator = nn.Sequential(
+                Encoder(in_channels, latent_dim=8, activation=activation, dropout=dropout),
+                nn.Linear(8, 1),
+                nn.Sigmoid()
+                )
+            self.discrim_metric = nn.BCELoss()
             # initialize weights
             self.encoder.apply(initialize_weights)
             self.decoder.apply(initialize_weights)
@@ -708,14 +712,10 @@ class AEGAN(AutoEncoder):
         # log the D(G(X)) loss - i.e. feedback on how the image is bad
         gen_loss = self.discrim_metric(fake_pred, fake_ones)
         loss = gen_loss + recon_loss
-        images = list()
-        for tensor in [X, Y, pred_Y]:
-            images.append(tensor[0].cpu().detach())
         logs = {
             "generator/fool": gen_loss,
             "generator/recon": recon_loss,
             "generator/combined": loss,
-            "samples": images
         }
         return loss, logs
 
@@ -737,6 +737,12 @@ class AEGAN(AutoEncoder):
     def validation_step(self, batch, batch_idx):
         X, Y, _, _ = batch
         gen_loss, logs = self._gen_loss(X, Y)
+        pred_Y = self.autoencoder(X)
+        images = list()
+        index = np.random.randint(0, X.size(0))
+        for tensor in [X, Y, pred_Y]:
+            images.append(tensor[index].detach().cpu())
+        logs["samples"] = images
         return gen_loss, logs
 
     def validation_epoch_end(self, outputs):
