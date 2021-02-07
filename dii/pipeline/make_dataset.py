@@ -87,7 +87,13 @@ def generate_image(
 
 
 def create_ion_image_composite(
-    filepath: str, n_images=300000, dim=500, sigma_mu=5., sigma_sigma=1., seed=42, n_jobs=1
+    filepath: str,
+    n_images=300000,
+    dim=500,
+    sigma_mu=5.0,
+    sigma_sigma=1.0,
+    seed=42,
+    n_jobs=1,
 ) -> np.ndarray:
     logger.add("LOG")
     logger.info(f"Random seed: {seed}")
@@ -100,7 +106,7 @@ def create_ion_image_composite(
     # blurry ones. Typically we care more about the sharp images.
     sigma = np.abs(rng.normal(sigma_mu, sigma_sigma, size=n_images))
     replacements = (sigma <= 0.7).sum()
-    sigma[sigma <= 0.7] = rng.uniform(0.8, 5., size=replacements)
+    sigma[sigma <= 0.7] = rng.uniform(0.8, 5.0, size=replacements)
     center = dim // 2
     mu = rng.uniform(center * 0.1, center * 0.8, size=n_images)
     h5_file = h5py.File(filepath, mode="a")

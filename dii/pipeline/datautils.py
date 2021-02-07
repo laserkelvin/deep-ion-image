@@ -10,7 +10,12 @@ from torchvision.transforms import Compose, ToTensor
 from dii.pipeline.transforms import central_pipeline, projection_pipeline
 
 
-def generate_mask(images: np.ndarray, centers: np.ndarray, threshold: float = 0.4, num_classes: int = 9) -> np.ndarray:
+def generate_mask(
+    images: np.ndarray,
+    centers: np.ndarray,
+    threshold: float = 0.4,
+    num_classes: int = 9,
+) -> np.ndarray:
     """
     Generate a mask for segmentation.
 
@@ -27,7 +32,7 @@ def generate_mask(images: np.ndarray, centers: np.ndarray, threshold: float = 0.
         [description]
     """
     img_size = images.shape[-1]
-    label_map = np.linspace(0., img_size // 2, num_classes)
+    label_map = np.linspace(0.0, img_size // 2, num_classes)
     mask = np.zeros((img_size, img_size), dtype=int)
     for index, image in enumerate(images):
         center = centers[index]
@@ -115,7 +120,7 @@ class CompositeH5Dataset(H5Dataset):
         indices=None,
         max_composites: int = 6,
         mask_threshold: float = 0.3,
-        rng_type: str = "uniform"
+        rng_type: str = "uniform",
     ):
         """
         Inheriting from `H5Dataset`, this version is purely stochastic by generating
@@ -194,12 +199,14 @@ class CompositeH5Dataset(H5Dataset):
         # or with a Gaussian
         else:
             midpoint = self.max_composites // 2
-            n_composites = int(self.rng.normal(self.max_composites, 1.))
+            n_composites = int(self.rng.normal(self.max_composites, 1.0))
         if n_composites > self.max_composites:
             n_composites = self.max_composites
         # scale the images by random amounts; shape of the rng is done
         # to match the number of images and for elementwise multiplication
-        scaler = self.rng.uniform(0.5, 10., size=n_composites)[:,None,None].astype(np.float32)
+        scaler = self.rng.uniform(0.5, 10.0, size=n_composites)[:, None, None].astype(
+            np.float32
+        )
         # choose the images randomly
         chosen = self.rng.choice(self.indices, replace=False, size=n_composites)
         if n_composites != 1:
@@ -216,10 +223,17 @@ class CompositeH5Dataset(H5Dataset):
         if unsplit_true.shape[0] < self.max_composites:
             img_size = unsplit_true.shape[-1]
             remaining = self.max_composites - unsplit_true.shape[0]
-            unsplit_true = np.vstack([unsplit_true, np.zeros((remaining, img_size, img_size))])
+            unsplit_true = np.vstack(
+                [unsplit_true, np.zeros((remaining, img_size, img_size))]
+            )
         if projection.ndim == 3:
             # for the projection, generate a mask for segmentation later
-            mask = generate_mask(projection, centers[radial_sort], self.mask_threshold, num_classes=self.max_composites)
+            mask = generate_mask(
+                projection,
+                centers[radial_sort],
+                self.mask_threshold,
+                num_classes=self.max_composites,
+            )
             projection = projection.sum(axis=0)
         else:
             mask = np.zeros_like(projection)

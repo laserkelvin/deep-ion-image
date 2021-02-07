@@ -21,10 +21,10 @@ class AbelProjection(object):
 
 
 class AddNoise(object):
-    def __init__(self, mean: float = 0., var: float = 0.01):
+    def __init__(self, mean: float = 0.0, var: float = 0.01):
         self.mean = mean
         self.var = var
-        
+
     def __call__(self, X: np.ndarray) -> np.ndarray:
         # make sure to downcast the image, otherwise half and normal
         # precision will not work
@@ -32,7 +32,9 @@ class AddNoise(object):
         dice = np.random.rand()
         # flip a coin to determine Gaussian or Poisson noise
         if dice <= 0.33:
-            output = random_noise(X, "gaussian", clip=True, mean=self.mean, var=self.var)
+            output = random_noise(
+                X, "gaussian", clip=True, mean=self.mean, var=self.var
+            )
         elif dice >= 0.66:
             output = random_noise(X, "poisson", clip=True)
         # don't add noise
@@ -98,14 +100,15 @@ class Normalize(object):
         # clamp image to [0,1]
         return (X - floor) / (ceil - floor + self.eps)
 
+
 # this is a pipeline that has been tested and is known to provide the "right" kind
 # of behaviour AFAIK
 central_pipeline = tf.Compose(
     [
         # ProcessNumpyArray(),
-        #tf.ToPILImage(),
-        #tf.Resize((500,500)),
-        #tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
+        # tf.ToPILImage(),
+        # tf.Resize((500,500)),
+        # tf.RandomAffine(0.0, scale=(0.3, 1.0), resample=Image.BICUBIC),  # scale the image for randomness
         # BlurPIL(),
         Normalize(),
         tf.ToTensor(),
@@ -114,9 +117,9 @@ central_pipeline = tf.Compose(
 
 projection_pipeline = tf.Compose(
     [
-        #tf.RandomAffine(
+        # tf.RandomAffine(
         #    0.0, translate=(0.05, 0.05), resample=Image.BICUBIC
-        #),  # we move the 3D image around
+        # ),  # we move the 3D image around
         AddNoise(),
         Normalize(),
         tf.ToTensor(),
@@ -129,6 +132,6 @@ mini_forward_pipeline = tf.Compose(
         tf.ToPILImage(),
         tf.Resize((256, 256)),
         tf.ToTensor(),
-        Normalize()
+        Normalize(),
     ]
 )

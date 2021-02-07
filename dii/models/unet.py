@@ -34,9 +34,7 @@ class UNet(nn.Module):
                 modules.append(layer(chan, chan_sizes[index + 1]))
             except IndexError:
                 pass
-        encoder = nn.Sequential(
-            modules
-        )
+        encoder = nn.Sequential(modules)
         return encoder
 
     def forward(self, x):
@@ -104,7 +102,7 @@ class UnetEncoderBlock(nn.Module):
             "leaky_relu": nn.LeakyReLU(0.3),
             "prelu": nn.PReLU(),
             "tanh": nn.Tanh(),
-            "elu": nn.ELU()
+            "elu": nn.ELU(),
         }
         if activation and activation in valid_activations:
             self.activation = valid_activations.get(activation)
@@ -138,7 +136,7 @@ class UnetDecoderBlock(nn.Module):
             "leaky_relu": nn.LeakyReLU(0.3),
             "prelu": nn.PReLU(),
             "tanh": nn.Tanh(),
-            "elu": nn.ELU()
+            "elu": nn.ELU(),
         }
         if activation and activation in valid_activations:
             self.activation = valid_activations.get(activation)
@@ -180,10 +178,16 @@ class UnetEncoder(nn.Module):
         super().__init__()
         self.inc = DoubleConv(n_channels, start_features)
         self.down1 = UnetEncoderBlock(start_features, start_features * 2, activation)
-        self.down2 = UnetEncoderBlock(start_features * 2, start_features * 4, activation)
-        self.down3 = UnetEncoderBlock(start_features * 4, start_features * 8, activation)
+        self.down2 = UnetEncoderBlock(
+            start_features * 2, start_features * 4, activation
+        )
+        self.down3 = UnetEncoderBlock(
+            start_features * 4, start_features * 8, activation
+        )
         factor = 2 if bilinear else 1
-        self.down4 = UnetEncoderBlock(start_features * 8, (start_features * 16) // factor, activation)
+        self.down4 = UnetEncoderBlock(
+            start_features * 8, (start_features * 16) // factor, activation
+        )
 
     def forward(self, X: torch.Tensor):
         x1 = self.inc(X)
@@ -195,13 +199,29 @@ class UnetEncoder(nn.Module):
 
 
 class UnetDecoder(nn.Module):
-    def __init__(self, n_channels, n_segs=9, start_features=16, bilinear=True, activation=None, final_act=nn.Sigmoid()):
+    def __init__(
+        self,
+        n_channels,
+        n_segs=9,
+        start_features=16,
+        bilinear=True,
+        activation=None,
+        final_act=nn.Sigmoid(),
+    ):
         super().__init__()
         factor = 2 if bilinear else 1
-        self.up1 = UnetDecoderBlock(start_features * 16, (start_features * 8) // factor, bilinear, activation)
-        self.up2 = UnetDecoderBlock(start_features * 8, (start_features * 4) // factor, bilinear, activation)
-        self.up3 = UnetDecoderBlock(start_features * 4, (start_features * 2) // factor, bilinear, activation)
-        self.up4 = UnetDecoderBlock(start_features * 2, start_features, bilinear, activation=nn.ReLU())
+        self.up1 = UnetDecoderBlock(
+            start_features * 16, (start_features * 8) // factor, bilinear, activation
+        )
+        self.up2 = UnetDecoderBlock(
+            start_features * 8, (start_features * 4) // factor, bilinear, activation
+        )
+        self.up3 = UnetDecoderBlock(
+            start_features * 4, (start_features * 2) // factor, bilinear, activation
+        )
+        self.up4 = UnetDecoderBlock(
+            start_features * 2, start_features, bilinear, activation=nn.ReLU()
+        )
         self.outc = OutputLayer(n_segs + 1, n_channels, None)
         # this layer will generate masks for each image
         self.seg = OutputLayer(start_features, n_segs + 1, None)

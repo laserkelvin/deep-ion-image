@@ -45,7 +45,9 @@ class DecoderBlock(nn.Module):
         **kwargs
     ):
         super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding, **kwargs)
+        self.conv = nn.Conv2d(
+            in_channels, out_channels, kernel_size, padding=padding, **kwargs
+        )
         if activation is not None:
             self.activation = activation()
         else:
@@ -113,7 +115,7 @@ class ResidualBlock(nn.Module):
         activation=nn.ReLU,
         pool: int = 0,
         upsample: int = 0,
-        dropout: float = 0.,
+        dropout: float = 0.0,
     ):
         super().__init__()
         layers = nn.ModuleList()

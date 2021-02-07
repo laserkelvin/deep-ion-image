@@ -21,7 +21,7 @@ def initialize_weights(m):
         # based on the original Kaiming paper, this helps deeper
         # convolutions not vanish
         nn.init.kaiming_normal_(m.weight)
-        m.bias.data.fill_(0.)
+        m.bias.data.fill_(0.0)
     elif isinstance(m, nn.Linear):
         nn.init.sparse_(m.weight, sparsity=0.05)
     else:
@@ -121,7 +121,7 @@ class Encoder(nn.Module):
                         activation=chosen_activation,
                         dropout=dropout,
                     )
-                    )
+                )
             else:
                 model.append(
                     layers.ResidualBlock(
@@ -134,9 +134,7 @@ class Encoder(nn.Module):
                         dropout=dropout,
                     )
                 )
-        model.extend(
-            [nn.Flatten(), nn.Linear(128 * 3 * 3, latent_dim)]
-            )
+        model.extend([nn.Flatten(), nn.Linear(128 * 3 * 3, latent_dim)])
         self.model = nn.Sequential(*model)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -179,7 +177,7 @@ class Decoder(nn.Module):
                         kernel_size=7,
                         upsample_size=2,
                         activation=nn.Sigmoid,
-                        batch_norm=False
+                        batch_norm=False,
                     )
                 )
             else:
@@ -229,7 +227,7 @@ class AutoEncoder(pl.LightningModule):
         self.split_true = split_true
         self.apply(initialize_weights)
         self.metric = nn.BCELoss()
-        #self.metric = nn.MSELoss()
+        # self.metric = nn.MSELoss()
         self.pretraining = pretraining
         self.train_settings = {
             "train_seed": train_seed,
@@ -240,7 +238,7 @@ class AutoEncoder(pl.LightningModule):
             "test_indices": test_indices,
         }
         self.h5_path = h5_path
-        self.save_hyperparameters() 
+        self.save_hyperparameters()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -499,7 +497,7 @@ class VAE(AutoEncoder):
         self.split_true = split_true
         # in the event KLdiv goes to NaN, make sure weights are small
         self.apply(initialize_weights)
-        #nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
+        # nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
         nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
 
     def _run_step(self, x):
@@ -600,10 +598,10 @@ class AEGAN(AutoEncoder):
         out_channels: int,
         latent_dim: int = 128,
         lr: float = 1e-3,
-        weight_decay: float = 0.,
+        weight_decay: float = 0.0,
         split_true: bool = False,
         activation: str = "prelu",
-        dropout: float = 0.,
+        dropout: float = 0.0,
         train_seed: int = 42,
         test_seed: int = 1923,
         n_workers: int = 8,
@@ -632,7 +630,8 @@ class AEGAN(AutoEncoder):
             test_indices=test_indices,
             **kwargs,
         )
-        self.autoencoder = AutoEncoder(in_channels,
+        self.autoencoder = AutoEncoder(
+            in_channels,
             out_channels,
             latent_dim=latent_dim,
             lr=lr,
@@ -648,13 +647,14 @@ class AEGAN(AutoEncoder):
             h5_path=h5_path,
             train_indices=train_indices,
             test_indices=test_indices,
-            **kwargs,)
+            **kwargs,
+        )
         # set up the discriminator
         self.discriminator = nn.Sequential(
             Encoder(in_channels, latent_dim=8, activation=activation, dropout=dropout),
             nn.Linear(8, 1),
-            nn.Sigmoid()
-            )
+            nn.Sigmoid(),
+        )
         self.discrim_metric = nn.BCELoss()
         # initialize weights for the discriminator
         self.discriminator.apply(initialize_weights)
@@ -671,8 +671,12 @@ class AEGAN(AutoEncoder):
 
     def configure_optimizers(self):
         lr, weight_decay = self.hparams.lr, self.hparams.weight_decay
-        opt_disc = torch.optim.Adam(self.discriminator.parameters(), lr=lr, weight_decay=weight_decay)
-        opt_gen = torch.optim.Adam(self.autoencoder.parameters(), lr=lr, weight_decay=weight_decay)
+        opt_disc = torch.optim.Adam(
+            self.discriminator.parameters(), lr=lr, weight_decay=weight_decay
+        )
+        opt_gen = torch.optim.Adam(
+            self.autoencoder.parameters(), lr=lr, weight_decay=weight_decay
+        )
         return [opt_disc, opt_gen], []
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -691,7 +695,11 @@ class AEGAN(AutoEncoder):
         fake_loss = self.discrim_metric(fake_pred, fake_zeros)
 
         disc_loss = fake_loss + real_loss
-        logs = {"discriminator/fake": fake_loss, "discriminator/real": real_loss, "discriminator/combined": disc_loss}
+        logs = {
+            "discriminator/fake": fake_loss,
+            "discriminator/real": real_loss,
+            "discriminator/combined": disc_loss,
+        }
         return disc_loss, logs
 
     def _disc_step(self, X: torch.Tensor, Y: torch.Tensor):
@@ -757,13 +765,13 @@ class VAEGAN(AEGAN):
         self,
         in_channels: int,
         out_channels: int,
-        beta: float = 4.,
+        beta: float = 4.0,
         latent_dim: int = 128,
         lr: float = 1e-3,
-        weight_decay: float = 0.,
+        weight_decay: float = 0.0,
         split_true: bool = False,
         activation: str = "prelu",
-        dropout: float = 0.,
+        dropout: float = 0.0,
         train_seed: int = 42,
         test_seed: int = 1923,
         n_workers: int = 8,
@@ -795,7 +803,8 @@ class VAEGAN(AEGAN):
         )
         # swap out the autoencoder for a variational one
         del self.autoencoder
-        self.autoencoder = VAE(in_channels,
+        self.autoencoder = VAE(
+            in_channels,
             out_channels,
             beta=beta,
             latent_dim=latent_dim,
@@ -812,7 +821,8 @@ class VAEGAN(AEGAN):
             h5_path=h5_path,
             train_indices=train_indices,
             test_indices=test_indices,
-            **kwargs,)
+            **kwargs,
+        )
         self.save_hyperparameters()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
