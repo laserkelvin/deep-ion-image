@@ -602,7 +602,6 @@ class AEGAN(AutoEncoder):
             split_true=split_true,
             activation=activation,
             dropout=dropout,
-            pretraining=False,
             train_seed=train_seed,
             test_seed=test_seed,
             n_workers=n_workers,
@@ -612,6 +611,8 @@ class AEGAN(AutoEncoder):
             test_indices=test_indices,
             **kwargs,
         )
+        del self.encoder
+        del self.decoder
         self.autoencoder = AutoEncoder(
             in_channels,
             out_channels,
@@ -621,7 +622,6 @@ class AEGAN(AutoEncoder):
             split_true=split_true,
             activation=activation,
             dropout=dropout,
-            pretraining=False,
             train_seed=train_seed,
             test_seed=test_seed,
             n_workers=n_workers,
@@ -796,7 +796,6 @@ class VAEGAN(AEGAN):
             split_true=split_true,
             activation=activation,
             dropout=dropout,
-            pretraining=False,
             train_seed=train_seed,
             test_seed=test_seed,
             n_workers=n_workers,
@@ -807,6 +806,13 @@ class VAEGAN(AEGAN):
             **kwargs,
         )
         self.save_hyperparameters()
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = common_hyperparameters(parent_parser)
+        parser.add_argument('--beta', type=float, default=1., metavar='GC',
+                    help='Beta coefficient for prior regularization (default: 1)')
+        return parser
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.autoencoder(X)
