@@ -28,59 +28,6 @@ def initialize_weights(m):
         pass
 
 
-class BaseEncoder(nn.Module):
-    def __init__(self, dropout=0.0):
-        super().__init__()
-        self.layers = nn.Sequential(
-            layers.ConvolutionBlock(
-                1, 8, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout
-            ),  # 8 x 125 x 125
-            layers.ConvolutionBlock(
-                8, 48, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout
-            ),  # 48 x 63 x 63
-            layers.ConvolutionBlock(
-                48, 64, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout
-            ),  # 64 x 16 x 16
-            layers.ConvolutionBlock(
-                64, 128, 3, padding=2, pool=nn.MaxPool2d(2), dropout=dropout
-            ),  # 128 x 9 x 9
-            layers.ConvolutionBlock(
-                128, 256, 3, padding=2, pool=nn.MaxPool2d(4), dropout=dropout
-            ),  # 256 x 2 x 2
-        )
-
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        output = self.layers(X)
-        return output
-
-
-class BaseDecoder(nn.Module):
-    def __init__(self, dropout=0.0):
-        super().__init__()
-        self.layers = nn.Sequential(
-            layers.TransposeDecoderBlock(
-                256, 128, 4, padding=1, stride=4, output_padding=3
-            ),
-            layers.TransposeDecoderBlock(
-                128, 64, 3, padding=2, stride=2, output_padding=1
-            ),
-            layers.TransposeDecoderBlock(
-                64, 48, 4, padding=1, stride=4, output_padding=2
-            ),
-            layers.TransposeDecoderBlock(48, 24, 8, padding=5, stride=4),
-            layers.TransposeDecoderBlock(
-                24, 8, 4, padding=3, stride=2, output_padding=1
-            ),
-            layers.TransposeDecoderBlock(
-                8, 1, 4, activation=nn.Sigmoid(), batch_norm=False, stride=1
-            ),
-        )
-
-    def forward(self, X: torch.Tensor):
-        output = self.layers(X)
-        return output
-
-
 class Encoder(nn.Module):
     def __init__(
         self,
@@ -659,15 +606,6 @@ class AEGAN(AutoEncoder):
         # initialize weights for the discriminator
         self.discriminator.apply(initialize_weights)
         self.save_hyperparameters()
-
-    @staticmethod
-    def _weights_init(m):
-        classname = m.__class__.__name__
-        if classname.find("Conv") != -1:
-            torch.nn.init.normal_(m.weight, 0.0, 0.02)
-        elif classname.find("BatchNorm") != -1:
-            torch.nn.init.normal_(m.weight, 1.0, 0.02)
-            torch.nn.init.zeros_(m.bias)
 
     def configure_optimizers(self):
         lr, weight_decay = self.hparams.lr, self.hparams.weight_decay
