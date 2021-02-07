@@ -611,7 +611,6 @@ class AEGAN(AutoEncoder):
         h5_path: Union[None, str] = None,
         train_indices: Union[np.ndarray, Iterable, None] = None,
         test_indices: Union[np.ndarray, Iterable, None] = None,
-        training: bool = True,
         **kwargs,
     ):
         super().__init__(
@@ -650,20 +649,15 @@ class AEGAN(AutoEncoder):
             train_indices=train_indices,
             test_indices=test_indices,
             **kwargs,)
-        # for training, we'll use a discriminator too
-        if training:
-            self.discriminator = nn.Sequential(
-                Encoder(in_channels, latent_dim=8, activation=activation, dropout=dropout),
-                nn.Linear(8, 1),
-                nn.Sigmoid()
-                )
-            self.discrim_metric = nn.BCELoss()
-            # initialize weights
-            self.encoder.apply(initialize_weights)
-            self.decoder.apply(initialize_weights)
-            self.discriminator.apply(initialize_weights)
-        else:
-            self.discriminator = None
+        # set up the discriminator
+        self.discriminator = nn.Sequential(
+            Encoder(in_channels, latent_dim=8, activation=activation, dropout=dropout),
+            nn.Linear(8, 1),
+            nn.Sigmoid()
+            )
+        self.discrim_metric = nn.BCELoss()
+        # initialize weights for the discriminator
+        self.discriminator.apply(initialize_weights)
         self.save_hyperparameters()
 
     @staticmethod
@@ -691,7 +685,7 @@ class AEGAN(AutoEncoder):
         real_loss = self.discrim_metric(real_pred, real_ones)
 
         # now run the VAE model to generate an image
-        samples = self(X)
+        samples = self.autoencoder(X)
         fake_pred = self.discriminator(samples)
         fake_zeros = torch.zeros_like(fake_pred)
         fake_loss = self.discrim_metric(fake_pred, fake_zeros)
@@ -758,14 +752,13 @@ class AEGAN(AutoEncoder):
         )
 
 
-class VAEGAN(AutoEncoder):
+class VAEGAN(AEGAN):
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
         beta: float = 4.,
         latent_dim: int = 128,
-        z_dim: int = 128,
         lr: float = 1e-3,
         weight_decay: float = 0.,
         split_true: bool = False,
@@ -786,13 +779,11 @@ class VAEGAN(AutoEncoder):
             out_channels,
             beta=beta,
             latent_dim=latent_dim,
-            z_dim=z_dim,
             lr=lr,
             weight_decay=weight_decay,
             split_true=split_true,
             activation=activation,
             dropout=dropout,
-            pretraining=False,
             train_seed=train_seed,
             test_seed=test_seed,
             n_workers=n_workers,
@@ -802,11 +793,12 @@ class VAEGAN(AutoEncoder):
             test_indices=test_indices,
             **kwargs,
         )
+        # swap out the autoencoder for a variational one
+        del self.autoencoder
         self.autoencoder = VAE(in_channels,
             out_channels,
             beta=beta,
             latent_dim=latent_dim,
-            z_dim=z_dim,
             lr=lr,
             weight_decay=weight_decay,
             split_true=split_true,
@@ -821,95 +813,35 @@ class VAEGAN(AutoEncoder):
             train_indices=train_indices,
             test_indices=test_indices,
             **kwargs,)
-        # for training, we'll use a discriminator too
-        if training:
-            self.discriminator = Encoder(in_channels, latent_dim=1, activation=activation, dropout=dropout)
-            self.discrim_metric = nn.BCEWithLogitsLoss()
-            # initialize weights
-            self.encoder.apply(self._weights_init)
-            self.decoder.apply(self._weights_init)
-            self.discriminator.apply(self._weights_init)
-        else:
-            self.discriminator = None
         self.save_hyperparameters()
-
-    @staticmethod
-    def _weights_init(m):
-        classname = m.__class__.__name__
-        if classname.find("Conv") != -1:
-            torch.nn.init.normal_(m.weight, 0.0, 0.02)
-        elif classname.find("BatchNorm") != -1:
-            torch.nn.init.normal_(m.weight, 1.0, 0.02)
-            torch.nn.init.zeros_(m.bias)
-
-    def configure_optimizers(self):
-        lr, weight_decay = self.hparams.lr, self.hparams.weight_decay
-        opt_disc = torch.optim.Adam(self.discriminator.parameters(), lr=lr, weight_decay=weight_decay)
-        opt_gen = torch.optim.Adam(self.autoencoder.parameters(), lr=lr, weight_decay=weight_decay)
-        return [opt_disc, opt_gen], []
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.autoencoder(X)
 
-    def _disc_loss(self, X: torch.Tensor, Y: torch.Tensor):
-        # training on real data first
-        real_pred = self.discriminator(Y)
-        real_ones = torch.ones_like(real_pred)
-        real_loss = self.discrim_metric(real_pred, real_ones)
-
-        # now run the VAE model to generate an image
-        samples = self(X)
-        fake_pred = self.discriminator(samples)
-        fake_zeros = torch.zeros_like(fake_pred)
-        fake_loss = self.discrim_metric(fake_pred, fake_zeros)
-
-        disc_loss = fake_loss + real_loss
-        logs = {"discriminator/fake": fake_loss, "discriminator/real": real_loss, "discriminator/combined": disc_loss}
-        return disc_loss, logs
-
-    def _disc_step(self, X: torch.Tensor, Y: torch.Tensor):
-        disc_loss = self._disc_loss(X, Y)
-        return disc_loss
-
     def _gen_loss(self, X: torch.Tensor, Y: torch.Tensor):
         z, pred_images, p, q = self.autoencoder._run_step(X)
+        # this is modified to use the VAE loss instead of the straight
+        # autoencoder loss
         vae_loss, logs = self.autoencoder._vae_loss(Y, pred_images, z, p, q)
         fake_pred = self.discriminator(pred_images)
         fake_ones = torch.ones_like(fake_pred)
         gen_loss = self.discrim_metric(fake_pred, fake_ones)
+        loss = vae_loss + gen_loss
         # log the D(G(X)) loss - i.e. feedback on how the image is bad
         logs["generator/fool"] = gen_loss
         images = list()
+        index = np.random.randint(0, X.size(0))
         for tensor in [X, Y, pred_images]:
-            images.append(tensor[0].cpu().detach())
+            images.append(tensor[index].detach().cpu())
         logs["samples"] = images
-        return gen_loss, logs
-
-    def _gen_step(self, X, Y):
-        gen_loss = self._gen_loss(X, Y)
-        return gen_loss
-
-    def training_step(self, batch, batch_idx, optimizer_idx):
-        X, Y, _, _ = batch
-        loss, log = None, None
-        # update the discriminator
-        if optimizer_idx == 0:
-            loss, log = self._disc_step(X, Y)
-        # update the generator
-        if optimizer_idx == 1:
-            loss, log = self._gen_step(X, Y)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        X, Y, _, _ = batch
-        gen_loss, logs = self._gen_loss(X, Y)
-        return gen_loss, logs
+        return loss, logs
 
     def validation_epoch_end(self, outputs):
         _, logs = outputs[-1]
         images = logs.get("samples")
         x, y, pred_y = images
-        X = x.repeat((16, 1, 1, 1)).cuda()
+        # make sure the samples are on the same device as the model
+        X = x.repeat((16, 1, 1, 1)).to(self.device)
         with torch.no_grad():
             samples = self.autoencoder(X).cpu()
             sample_grid = torchvision.utils.make_grid(samples, nrow=4)
