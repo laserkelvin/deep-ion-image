@@ -14,8 +14,7 @@ parser.add_argument('--grad_clip', type=float, default=0., metavar='GC',
 parser.add_argument('--half', type=bool, default=False, metavar='GC',
                     help='Flag for using half precision (default: False)')
 parser.add_argument('--cpu', type=bool, default=False, help="Force CPU model (default: False")
-parser.add_argument('--model', type="str", default="baseline", help="Model specification, refer to base.py")
-parser.add_argument('--half', type=bool, default=False, help="Training with half precision (default: False)")
+parser.add_argument('--model', type=str, default="baseline", help="Model specification, refer to base.py")
 parser.add_argument('--sweep', type=bool, default=False, help="If using wandb for a sweep (default: False")
 # this grabs the model choice without running parse_args
 temp_args, _ = parser.parse_known_args()
@@ -47,7 +46,7 @@ if args.sweep:
 
 model = model_choice(train_indices=train_indices, test_indices=test_indices, **vars(args))
 
-logger = pl.loggers.WandbLogger(name="baseline", project="deep-ion-image", entity="team-brazil")
+logger = pl.loggers.WandbLogger(project="deep-ion-image", entity="team-brazil")
 logger.watch(model, log="all")
 logger.log_hyperparams(vars(args))
 

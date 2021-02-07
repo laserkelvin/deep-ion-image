@@ -239,11 +239,12 @@ class AutoEncoder(pl.LightningModule):
         if self.hparams.pretraining:
             X = batch
             Y = torch.clone(X)
+            unsplit = None
         else:
             # ignore the mask and the unsplit images
             X, Y, _, unsplit = batch
         pred_Y = self(X)
-        if self.split_true and not self.pretraining:
+        if self.hparams.split_true and not self.hparams.pretraining:
             loss = self.metric(pred_Y, unsplit.permute(0, 2, 1, 3))
             collapsed = pred_Y.sum(1).unsqueeze(1)
             loss += self._reconstruction_loss(collapsed, Y)
