@@ -1,4 +1,5 @@
 from typing import Dict, List, Union, Iterable
+from argparse import ArgumentParser
 
 import torch
 import pytorch_lightning as pl
@@ -26,6 +27,43 @@ def initialize_weights(m):
         nn.init.sparse_(m.weight, sparsity=0.05)
     else:
         pass
+
+
+def common_hyperparameters(parent_parser):
+    """
+    Tucks the argparse stuff into the model.
+    
+    See https://pytorch-lightning.readthedocs.io/en/latest/hyperparameters.html?highlight=argpars
+    for details.
+    """
+    parser = ArgumentParser(parents=[parent_parser], add_help=False)
+    parser.add_argument('--in_channels', type=int, default=1, metavar='N',
+                help='Number of input channels (default: 1)')
+    parser.add_argument('--out_channels', type=int, default=1, metavar='N',
+                        help='Number of output channels (default: 1)')
+    parser.add_argument('--latent_dim', type=int, default=64, metavar='N',
+                        help='Dimensionality of the latent vector (default: 64)')
+    parser.add_argument('--batch_size', type=int, default=64, metavar='N',
+                        help='input batch size for training (default: 64)')
+    parser.add_argument('--n_workers', type=int, default=8, metavar='N',
+                        help='Number of CPUs for dataloading (default: 9)')
+    parser.add_argument('--lr', type=float, default=1e-3, metavar='LR',
+                        help='learning rate (default: 1e-3)')
+    parser.add_argument('--train_seed', type=int, default=42, metavar='S',
+                        help='random seed (default: 42)')
+    parser.add_argument('--test_seed', type=int, default=1923, metavar='S',
+                        help='random seed (default: 1923)')
+    parser.add_argument('--activation', type=str, default="silu", metavar='GC',
+                        help='Name of activation function (default: silu)')
+    parser.add_argument('--dropout', type=float, default=0., metavar='GC',
+                        help='Dropout probability (default: 0)')
+    parser.add_argument('--weight_decay', type=float, default=0., metavar='GC',
+                        help='L2 regularization (default: 0)')
+    parser.add_argument('--pretraining', type=bool, default=False, metavar='GC',
+                        help='Whether to use composite images or not. This is helpful for checking if learning is happening at all (default: False)')
+    parser.add_argument('--h5_path', type=str, default="../data/raw/128_ion_images.h5", metavar='GC',
+                        help='HDF5 ion image dataset path')
+    return parser
 
 
 class Encoder(nn.Module):
@@ -169,23 +207,16 @@ class AutoEncoder(pl.LightningModule):
         super().__init__()
         self.encoder = Encoder(in_channels, latent_dim, activation, dropout)
         self.decoder = Decoder(latent_dim, out_channels, activation, dropout)
-        self.lr = lr
-        self.weight_decay = weight_decay
-        self.split_true = split_true
-        self.apply(initialize_weights)
         self.metric = nn.BCELoss()
-        # self.metric = nn.MSELoss()
-        self.pretraining = pretraining
-        self.train_settings = {
-            "train_seed": train_seed,
-            "test_seed": test_seed,
-            "n_workers": n_workers,
-            "batch_size": batch_size,
-            "train_indices": train_indices,
-            "test_indices": test_indices,
-        }
-        self.h5_path = h5_path
+        # do non-standard weight initialization
+        self.apply(initialize_weights)
+        # save __init__ args to hparams attribute
         self.save_hyperparameters()
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = common_hyperparameters(parent_parser)
+        return parser
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         z = self.encoder(X)
@@ -193,7 +224,7 @@ class AutoEncoder(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
-            self.parameters(), self.lr, weight_decay=self.weight_decay
+            self.parameters(), self.hparams.lr, weight_decay=self.hparams.weight_decay
         )
         return optimizer
 
@@ -205,7 +236,7 @@ class AutoEncoder(pl.LightningModule):
 
     def step(self, batch, batch_idx):
         # for pretraining, we want the model to learn the noisefree stuffs
-        if self.pretraining:
+        if self.hparams.pretraining:
             X = batch
             Y = torch.clone(X)
         else:
@@ -246,7 +277,7 @@ class AutoEncoder(pl.LightningModule):
         return (loss, logs)
 
     def validation_epoch_end(self, outputs):
-        loss, logs = outputs[-1]
+        _, logs = outputs[-1]
         images = logs.get("samples")
         x, y, pred_y = images
         self.logger.experiment.log(
@@ -258,11 +289,7 @@ class AutoEncoder(pl.LightningModule):
         )
 
     def train_dataloader(self) -> DataLoader:
-        train_indices = self.train_settings.get("train_indices")
-        train_seed = self.train_settings.get("train_seed")
-        batch_size = self.train_settings.get("batch_size")
-        n_workers = self.train_settings.get("n_workers")
-        if not self.pretraining:
+        if not self.hparams.pretraining:
             dataset_type = datautils.CompositeH5Dataset
             target = "projection"
             transform = transforms.projection_pipeline
@@ -271,21 +298,17 @@ class AutoEncoder(pl.LightningModule):
             target = "true"
             transform = transforms.central_pipeline
         dataset = dataset_type(
-            self.h5_path,
+            self.hparams.h5_path,
             target,
-            indices=train_indices,
-            seed=train_seed,
+            indices=self.hparams.train_indices,
+            seed=self.hparams.train_seed,
             transform=transform,
         )
-        loader = DataLoader(dataset, batch_size=batch_size, num_workers=n_workers)
+        loader = DataLoader(dataset, batch_size=self.hparams.batch_size, num_workers=self.hparams.n_workers)
         return loader
 
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
-        test_indices = self.train_settings.get("test_indices")
-        test_seed = self.train_settings.get("test_seed")
-        batch_size = self.train_settings.get("batch_size")
-        n_workers = self.train_settings.get("n_workers")
-        if not self.pretraining:
+        if not self.hparams.pretraining:
             dataset_type = datautils.CompositeH5Dataset
             target = "projection"
             transform = transforms.projection_pipeline
@@ -294,13 +317,13 @@ class AutoEncoder(pl.LightningModule):
             target = "true"
             transform = transforms.central_pipeline
         dataset = dataset_type(
-            self.h5_path,
+            self.hparams.h5_path,
             target,
-            indices=test_indices,
-            seed=test_seed,
+            indices=self.hparams.test_indices,
+            seed=self.hparams.test_seed,
             transform=transform,
         )
-        loader = DataLoader(dataset, batch_size=batch_size, num_workers=n_workers)
+        loader = DataLoader(dataset, batch_size=self.hparams.batch_size, num_workers=self.hparams.n_workers)
         return loader
 
 
@@ -439,13 +462,18 @@ class VAE(AutoEncoder):
         )
         self.fc_mu = nn.Linear(latent_dim, latent_dim)
         self.fc_logvar = nn.Linear(latent_dim, latent_dim)
-        self.beta = beta
-        self.latent_dim = latent_dim
-        self.split_true = split_true
-        # in the event KLdiv goes to NaN, make sure weights are small
         self.apply(initialize_weights)
+        # in the event KLdiv goes to NaN, make sure weights are small
         # nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
         nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
+        self.save_hyperparameters()
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = common_hyperparameters(parent_parser)
+        parser.add_argument('--beta', type=float, default=1., metavar='GC',
+                    help='Beta coefficient for prior regularization (default: 1)')
+        return parser
 
     def _run_step(self, x):
         x = self.encoder(x)
@@ -465,16 +493,16 @@ class VAE(AutoEncoder):
         recon_loss = self._reconstruction_loss(pred_Y, Y)
         log_qz = q.log_prob(z)
         log_pz = p.log_prob(z)
-
+        # calculate the prior regularization term
         kl = log_qz - log_pz
         kl = kl.mean()
-        kl *= self.beta
+        kl *= self.hparams.beta
         loss = recon_loss + kl
         logs = {"recon_loss": recon_loss, "kl": kl, "loss": loss}
         return loss, logs
 
     def step(self, batch, batch_idx):
-        if not self.pretraining:
+        if not self.hparams.pretraining:
             X, Y, _, unsplit = batch
         # don't use the noisy images for pretraining
         else:
@@ -482,7 +510,7 @@ class VAE(AutoEncoder):
             Y = torch.clone(X)
             unsplit = None
         z, pred_Y, p, q = self._run_step(X)
-        if self.split_true and not self.pretraining:
+        if self.hparams.split_true and not self.hparams.pretraining:
             target = unsplit
         else:
             target = Y
@@ -801,3 +829,12 @@ class VAEGAN(AEGAN):
                 "samples": wandb.Image(sample_grid),
             }
         )
+
+
+# this creates a mapping useful for argparse
+valid_models = {
+    "baseline": AutoEncoder,
+    "vae": VAE,
+    "aegan": AEGAN,
+    "vaegan": VAEGAN
+}
