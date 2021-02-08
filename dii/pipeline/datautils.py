@@ -13,7 +13,7 @@ from dii.pipeline.transforms import central_pipeline, projection_pipeline
 def generate_mask(
     images: np.ndarray,
     centers: np.ndarray,
-    threshold: float = 0.4,
+    threshold: float = 1e-2,
     num_classes: int = 9,
 ) -> np.ndarray:
     """
@@ -36,6 +36,7 @@ def generate_mask(
     mask = np.zeros((img_size, img_size), dtype=int)
     for index, image in enumerate(images):
         center = centers[index]
+        # get closest label
         target_label = np.argmin(np.abs(center - label_map))
         mask[image >= threshold] = target_label + 1
     return mask
@@ -119,7 +120,7 @@ class CompositeH5Dataset(H5Dataset):
         seed=None,
         indices=None,
         max_composites: int = 6,
-        mask_threshold: float = 0.3,
+        mask_threshold: float = 0.1,
         rng_type: str = "uniform",
     ):
         """
@@ -215,8 +216,21 @@ class CompositeH5Dataset(H5Dataset):
         radial_sort = np.argsort(centers)
         # get the true central image and projections
         true = np.array(self.target_dataset[chosen])[radial_sort] * scaler
-        projection = np.array(self.dataset[chosen])[radial_sort] * scaler
+        projection = np.array(self.dataset[chosen])[radial_sort]
         unsplit_true = np.copy(true)
+        # make a mask before scaling
+        if n_composites > 1:
+            # for the projection, generate a mask for segmentation later
+            mask = generate_mask(
+                projection,
+                centers[radial_sort],
+                self.mask_threshold,
+                num_classes=self.max_composites,
+            )
+        else:
+            mask = np.zeros_like(projection)[0].astype(int)
+        projection *= scaler
+        projection = projection.sum(axis=0)
         # if we have multiple images, flatten to a single composite
         if true.ndim == 3:
             true = true.sum(axis=0)
@@ -225,18 +239,7 @@ class CompositeH5Dataset(H5Dataset):
             remaining = self.max_composites - unsplit_true.shape[0]
             unsplit_true = np.vstack(
                 [unsplit_true, np.zeros((remaining, img_size, img_size))]
-            )
-        if projection.ndim == 3:
-            # for the projection, generate a mask for segmentation later
-            mask = generate_mask(
-                projection,
-                centers[radial_sort],
-                self.mask_threshold,
-                num_classes=self.max_composites,
-            )
-            projection = projection.sum(axis=0)
-        else:
-            mask = np.zeros_like(projection)
+            ).astype(np.float32)
         # if we have a compose pipeline defined, run it
         if self.target_transform:
             true = self.target_transform(true)
