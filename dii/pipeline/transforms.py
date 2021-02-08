@@ -21,25 +21,17 @@ class AbelProjection(object):
 
 
 class AddNoise(object):
-    def __init__(self, mean: float = 0.0, var: float = 0.01):
-        self.mean = mean
-        self.var = var
-
     def __call__(self, X: np.ndarray) -> np.ndarray:
-        # make sure to downcast the image, otherwise half and normal
-        # precision will not work
+        # make sure to normalize intensity, otherwise poisson blows up
         X = X / (X.max())
-        dice = np.random.rand()
-        # flip a coin to determine Gaussian or Poisson noise
-        if dice <= 0.33:
-            output = random_noise(
-                X, "gaussian", clip=True, mean=self.mean, var=self.var
-            )
-        elif dice >= 0.66:
-            output = random_noise(X, "poisson", clip=True)
-        # don't add noise
-        else:
-            output = X
+        var = np.random.uniform(1e-3, 0.2)
+        # model Gaussian noise with random variance
+        gaussian_noise = np.random.normal(0., var, size=X.shape)
+        # model signal dependent Poisson noise
+        poisson_img = random_noise(X, "poisson", clip=True)
+        # output is left unnormalized as the next step of the pipeline
+        # will take care of it. Deliberately cast as float32 for PyTorch
+        output = poisson_img + gaussian_noise
         return output.astype(np.float32)
 
 
