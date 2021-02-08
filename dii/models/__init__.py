@@ -1,3 +1,3 @@
 from . import base, layers
 
-from .base import AutoEncoder, VAE, UNetAutoEncoder
+from .base import Encoder, Decoder, AutoEncoder, VAE, AEGAN, VAEGAN

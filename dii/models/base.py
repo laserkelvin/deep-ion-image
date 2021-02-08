@@ -1,4 +1,4 @@
-from typing import Dict, List, Union, Iterable
+from typing import Dict, List, Union, Iterable, Tuple
 from argparse import ArgumentParser
 
 import torch
@@ -138,6 +138,7 @@ class Decoder(nn.Module):
         out_channels: int,
         activation: str = "relu",
         dropout: float = 0.0,
+        output_activation: str = "sigmoid",
     ):
         super().__init__()
         sizes = [128, 64, 32, 16, 8, 4, out_channels]
@@ -151,10 +152,14 @@ class Decoder(nn.Module):
             "leaky_relu": nn.LeakyReLU,
             "tanh": nn.Tanh,
             "silu": nn.SiLU,
+            "sigmoid": nn.Sigmoid,
+            "softmax2d": nn.Softmax2d,
+            "null": None
         }
         if activation not in activation_maps:
             activation = "relu"
         chosen_activation = activation_maps.get(activation, "relu")
+        chosen_output = activation_maps.get(output_activation, "sigmoid")
         model = nn.ModuleList()
         for index, out_channels in enumerate(sizes):
             if index == 0:
@@ -167,7 +172,7 @@ class Decoder(nn.Module):
                         out_channels,
                         kernel_size=7,
                         upsample_size=2,
-                        activation=nn.Sigmoid,
+                        activation=chosen_output,
                         batch_norm=False,
                     )
                 )
@@ -334,17 +339,125 @@ class AutoEncoder(pl.LightningModule):
         return loader
 
 
-class UNetAutoEncoder(AutoEncoder):
-    def __init__(self, lr=1e-3, bilinear=True, **kwargs):
-        super().__init__(encoder=None, decoder=None, lr=lr, **kwargs)
-        self.encoder = UnetEncoder(1, bilinear)
-        self.decoder = UnetDecoder(1, 1, bilinear)
+class AESeg(AutoEncoder):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        latent_dim: int = 128,
+        lr=1e-3,
+        weight_decay=0.0,
+        split_true: bool = False,
+        activation: str = "relu",
+        dropout: float = 0.0,
+        pretraining: bool = False,
+        train_seed: int = 42,
+        test_seed: int = 1923,
+        n_workers: int = 8,
+        batch_size: int = 64,
+        h5_path: Union[None, str] = None,
+        train_indices: Union[np.ndarray, Iterable, None] = None,
+        test_indices: Union[np.ndarray, Iterable, None] = None,
+        **kwargs,
+    ):
+        super().__init__(
+            in_channels,
+            in_channels,
+            latent_dim,
+            lr,
+            weight_decay,
+            split_true,
+            activation,
+            dropout,
+            pretraining,
+            train_seed,
+            test_seed,
+            n_workers,
+            batch_size,
+            h5_path,
+            train_indices,
+            test_indices,
+            **kwargs,
+        )
+        # make the decoder output softmax
+        self.segment_model = Decoder(latent_dim, out_channels, activation, dropout)
+        self.seg_metric = nn.MSELoss()
         self.apply(initialize_weights)
+        self.save_hyperparameters()
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        encoding = self.encoder(X)
-        output, mask = self.decoder(encoding)
-        return output
+    def forward(self, X: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        z = self.encoder(X)
+        pred_Y = self.decoder(z)
+        pred_segs = self.segment_model(z)
+        return (pred_Y, pred_segs)
+
+    def step(self, batch, batch_idx):
+        X, Y, mask, unsplit = batch
+        pred_Y, pred_seg = self(X)
+
+        # calculate losses as sum of reconstruction and segmentation
+        recon_loss = self._reconstruction_loss(pred_Y, Y)
+        seg_loss = self.seg_metric(pred_seg, unsplit.permute(0, 2, 1, 3))
+        loss = recon_loss + seg_loss
+        # get some images
+        images = list()
+        index = np.random.randint(0, X.size(0))
+        for tensor in [X, Y, pred_Y, pred_seg]:
+            images.append(tensor[index].detach().cpu())
+        logs = {
+            "recon_loss": recon_loss,
+            "seg_loss": seg_loss,
+            "loss": loss,
+            "samples": images,
+        }
+        return loss, logs
+    
+    def validation_epoch_end(self, outputs):
+        _, logs = outputs[-1]
+        images = logs.get("samples")
+        x, y, pred_y, pred_seg = images
+        self.logger.experiment.log(
+            {
+                "target": wandb.Image(y.float()),
+                "predicted": wandb.Image(pred_y.float()),
+                "input": wandb.Image(x.float()),
+                # "segments": wandb.Image(pred_seg.float())
+            }
+        )
+
+
+    # def validation_epoch_end(self, outputs):
+    #     loss, logs = outputs[-1]
+    #     images = logs.get("samples")
+    #     x, y, pred_y, mask, pred_mask = images
+    #     # just get the classes
+    #     pred_mask = pred_mask.argmax(0).numpy()
+    #     mask = mask.numpy()
+    #     self.logger.experiment.log(
+    #         {
+    #             "input": wandb.Image(
+    #                 x.float(),
+    #                 masks={
+    #                     "ground_truth": {"mask_data": mask},
+    #                     "prediction": {"mask_data": pred_mask},
+    #                 },
+    #             ),
+    #             "target": wandb.Image(
+    #                 y.float(),
+    #                 masks={
+    #                     "ground_truth": {"mask_data": mask},
+    #                     "prediction": {"mask_data": pred_mask},
+    #                 },
+    #             ),
+    #             "predicted": wandb.Image(
+    #                 pred_y.float(),
+    #                 masks={
+    #                     "ground_truth": {"mask_data": mask},
+    #                     "prediction": {"mask_data": pred_mask},
+    #                 },
+    #             ),
+    #         }
+    #     )
 
 
 class UNetSegAE(AutoEncoder):
@@ -382,8 +495,9 @@ class UNetSegAE(AutoEncoder):
         loss = recon_loss + seg_loss
         # get some images
         images = list()
+        index = np.random.randint(0, X.size(0))
         for tensor in [X, Y, pred_Y, mask, pred_mask]:
-            images.append(tensor[0].cpu().detach())
+            images.append(tensor[index].detach().cpu())
         logs = {
             "recon_loss": recon_loss,
             "seg_loss": seg_loss,
@@ -857,6 +971,7 @@ class VAEGAN(AEGAN):
 # this creates a mapping useful for argparse
 valid_models = {
     "baseline": AutoEncoder,
+    "aeseg": AESeg,
     "vae": VAE,
     "aegan": AEGAN,
     "vaegan": VAEGAN
