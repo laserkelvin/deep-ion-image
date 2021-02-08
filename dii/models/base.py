@@ -1128,7 +1128,7 @@ class PixelVAE(VAE):
         train_indices: Union[np.ndarray, Iterable, None] = None,
         test_indices: Union[np.ndarray, Iterable, None] = None,
         pixel_layers: int = 3,
-        pixel_hidden: int = 128,
+        pixel_hidden: int = 64,
         chosen_output: str = "sigmoid",
         **kwargs,
     ):
@@ -1171,7 +1171,7 @@ class PixelVAE(VAE):
                     help='Beta coefficient for prior regularization (default: 1)')
         parser.add_argument('--pixel_hidden', type=int, default=64, metavar='GC',
                     help='Number of hidden units for PixelCNN (default: 64)')
-        parser.add_argument('--pixel_layers', type=int, default=64, metavar='GC',
+        parser.add_argument('--pixel_layers', type=int, default=5, metavar='GC',
                     help='Number of layers for PixelCNN (default: 3)')
         return parser
 
