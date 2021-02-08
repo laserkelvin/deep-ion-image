@@ -12,7 +12,14 @@ numpy
 scipy
 matplotlib
 python-dotenv>=0.5.1
-
+h5py
+scikit-learn
+scikit-image
+dropblock
+pytorch
+torchvision
+pytorch-lightning
+pytorch-lightning-bolts
 
 # backwards compatibility
 pathlib2
