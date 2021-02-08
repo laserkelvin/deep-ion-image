@@ -26,15 +26,12 @@ def weight_visualization(model: nn.Module, n_rows: int = 8, padding: int = 1):
             fig.savefig(f"layer{index}_weights.png", dpi=150)
 
 
-def get_input_gradients(
-    model: nn.Module, X: torch.Tensor, Y: Union[None, torch.Tensor] = None
-):
-    # make sure gradients are going to computed
-    model.train()
-    X = X.requires_grad_(True)
-    pred_Y = model(X)
-    if not Y:
-        Y = torch.ones_like(X)
-    # backprop w.r.t. inputs
-    pred_Y.backward(gradient=Y)
-    return X.grad.detach()
+def radial_profile(data, center) -> np.ndarray:
+    y, x = np.indices((data.shape))
+    r = np.sqrt((x - center[0])**2 + (y - center[1])**2)
+    r = r.astype(np.int)
+
+    tbin = np.bincount(r.ravel(), data.ravel())
+    nr = np.bincount(r.ravel())
+    radialprofile = tbin / nr
+    return radialprofile 

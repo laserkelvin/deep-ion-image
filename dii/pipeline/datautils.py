@@ -6,6 +6,7 @@ import numpy as np
 import pytorch_lightning as pl
 from torch.utils import data
 from torchvision.transforms import Compose, ToTensor
+from glob import glob
 
 from dii.pipeline.transforms import central_pipeline, projection_pipeline
 
@@ -274,3 +275,16 @@ class SelectiveComposite(H5Dataset):
             return super().__len__(self)
         else:
             return len(self.indices)
+
+
+def get_benchmark_imageset(path: str = "../../data/processed", n_images: int = 128) -> Tuple[torch.Tensor, torch.Tensor]:
+    input_images = list()
+    for i in range(n_images):
+        input_images.append(np.loadtxt(f"{path}/inputs/{i}.dat")[np.newaxis, np.newaxis, :, :])
+    input_images = torch.from_numpy(np.vstack(input_images)).float()
+
+    target_images = list()
+    for i in range(n_images):
+        target_images.append(np.loadtxt(f"{path}/outputs/{i}.dat")[np.newaxis, np.newaxis, :, :])
+    target_images = torch.from_numpy(np.vstack(target_images)).float()
+    return input_images, target_images

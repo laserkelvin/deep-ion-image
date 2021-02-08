@@ -246,6 +246,11 @@ class AutoEncoder(pl.LightningModule):
         return loss
 
     def step(self, batch, batch_idx):
+        """
+        Defines the common workflow between training and validation steps.
+        This takes care of the inputs, feeds it into the model, and then
+        computes the losses and bookkeeps the losses and some sample images.
+        """
         # for pretraining, we want the model to learn the noisefree stuffs
         if self.hparams.pretraining:
             X = batch
@@ -271,6 +276,10 @@ class AutoEncoder(pl.LightningModule):
         return loss, logs
 
     def training_step(self, batch, batch_idx):
+        """
+        Run the workflow for a training cycle. This is a `pl.LightningModule`
+        method that is being overwritten.
+        """
         loss, logs = self.step(batch, batch_idx)
         self.log_dict(
             {f"train_{k}": v for k, v in logs.items() if "samples" not in k},
@@ -280,6 +289,10 @@ class AutoEncoder(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        """
+        Run the workflow for a validation cycle. This is a `pl.LightningModule`
+        method that is being overwritten.
+        """
         loss, logs = self.step(batch, batch_idx)
         self.log_dict(
             {f"val_{k}": v for k, v in logs.items() if "samples" not in k},
@@ -289,6 +302,10 @@ class AutoEncoder(pl.LightningModule):
         return (loss, logs)
 
     def validation_epoch_end(self, outputs):
+        """
+        Run the `wandb` image logging at the end of a validation epoch. 
+        This is a `pl.LightningModule` method that is being overwritten.
+        """
         _, logs = outputs[-1]
         images = logs.get("samples")
         x, y, pred_y = images
@@ -301,6 +318,17 @@ class AutoEncoder(pl.LightningModule):
         )
 
     def train_dataloader(self) -> DataLoader:
+        """
+        This hooks up the training dataset, which changes depending
+        on what the training targets are. In `pretraining` mode,
+        we train with the noise-free `true` images (i.e. a true 
+        autoencoder) for a variety of reasons, mostly to test that
+        the architecture is indeed capable of learning.
+        
+        The random number seeds are also passed to the loaders here.
+        
+        This method overwrites a `pl.LightningModule` default.
+        """
         if not self.hparams.pretraining:
             dataset_type = datautils.CompositeH5Dataset
             target = "projection"
@@ -320,6 +348,17 @@ class AutoEncoder(pl.LightningModule):
         return loader
 
     def val_dataloader(self) -> Union[DataLoader, List[DataLoader]]:
+        """
+        This hooks up the validation dataset, which changes depending
+        on what the training targets are. In `pretraining` mode,
+        we train with the noise-free `true` images (i.e. a true 
+        autoencoder) for a variety of reasons, mostly to test that
+        the architecture is indeed capable of learning.
+        
+        The random number seeds are also passed to the loaders here.
+        
+        This method overwrites a `pl.LightningModule` default.
+        """
         if not self.hparams.pretraining:
             dataset_type = datautils.CompositeH5Dataset
             target = "projection"
@@ -337,6 +376,76 @@ class AutoEncoder(pl.LightningModule):
         )
         loader = DataLoader(dataset, batch_size=self.hparams.batch_size, num_workers=self.hparams.n_workers)
         return loader
+
+    def get_input_gradients(
+        self, X: torch.Tensor, Y: Union[None, torch.Tensor] = None
+    ) -> torch.Tensor:
+        """
+        This is a function for inspecting gradients w.r.t. an input image,
+        i.e. guided backpropagation. This is useful for seeing what parts
+        of an image are influencing the model predictions as a whole.
+        
+        This function changes the state of the model to `training`; make
+        sure to put it back to `eval()` if not needed afterwards.
+
+        Parameters
+        ----------
+        X : torch.Tensor
+            4D input image tensor, with shape (n x c x h x w)
+        Y : Union[None, torch.Tensor], optional
+            Target image to use for backprop, by default `None` which
+            uses a tensor of ones.
+
+        Returns
+        -------
+        torch.Tensor
+            Input gradients tensor with shape (n x c x h x w)
+        """
+        # make sure gradients are going to computed
+        self.train()
+        # ensure that the input tensor is part of the gradient graph
+        X = X.requires_grad_(True)
+        pred_Y = self(X)
+        if not Y:
+            Y = torch.ones_like(X)
+        # backprop w.r.t. inputs
+        pred_Y.backward(gradient=Y)
+        return X.grad.detach()
+
+    def predict(self, x: Union[torch.Tensor, np.ndarray], n: int = 200) -> torch.Tensor:
+        """
+        Run VAE sampling on a single input image `n` times as a minibatch.
+        The input image `x` is expected to be a single image, either
+        with a single or no channels (1 x h x w) or (h x w). If this model
+        is deterministic, i.e. a vanilla autoencoder, then the results should
+        be identical and therefore useless.
+
+        Parameters
+        ----------
+        x : Union[torch.Tensor, np.ndarray]
+            Input image with dimensions (1 x h x w) or (h x w).
+            The input is converted into a `torch.Tensor` if a `ndarray` is
+            passed.
+        n : int, optional
+            Number of samples to compute, by default 200.
+
+        Returns
+        -------
+        torch.Tensor
+            VAE samples conditioned on `x` with shape
+            (`n` x 1 x h x w)
+        """
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x).float()
+        # this is for a single image with no channels
+        if x.ndim == 2:
+            x.unsqueeze_(0)
+        # Repeat the inputs that many times, and move it to
+        # the same device as the model
+        X = x.repeat(n, 1, 1, 1).to(self.device)
+        with torch.no_grad():
+            Y = self(X)
+        return Y
 
 
 class AESeg(AutoEncoder):
