@@ -25,7 +25,7 @@ def weight_visualization(model: nn.Module, n_rows: int = 8, padding: int = 1):
             fig.savefig(f"layer{index}_weights.png", dpi=150)
 
 
-def radial_profile(data: np.ndarray, center: Iterable[float, float]) -> np.ndarray:
+def radial_profile(data: np.ndarray, center: Iterable[float]) -> np.ndarray:
     y, x = np.indices((data.shape))
     r = np.sqrt((x - center[0])**2 + (y - center[1])**2)
     r = r.astype(np.int)
