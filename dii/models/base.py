@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from dii.models import layers
 from dii.models.unet import UnetEncoder, UnetDecoder
 from dii.pipeline import datautils, transforms
+from dii.visualization import radial_profile
 from pl_bolts.models.vision import PixelCNN
 
 
@@ -446,6 +447,26 @@ class AutoEncoder(pl.LightningModule):
             Y = self(X)
         return Y
 
+    def model_radial_profile(self, x: torch.Tensor) -> np.ndarray:
+        """
+        Get the predicted radial profile of an image
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            [description]
+
+        Returns
+        -------
+        np.ndarray
+            [description]
+        """
+        y = self.predict(x, n=1)
+        # remove batch and channel dimensions, and move to
+        # cpu and convert to NumPy array
+        y = y.squeeze_(0).squeeze_(0).cpu().numpy()
+        img_center = x.size(-1) // 2
+        return radial_profile(y, (img_center, img_center))
 
 class AESeg(AutoEncoder):
     def __init__(
