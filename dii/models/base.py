@@ -57,6 +57,8 @@ def common_hyperparameters(parent_parser):
                         help='Name of activation function (default: silu)')
     parser.add_argument('--dropout', type=float, default=0., metavar='GC',
                         help='Dropout probability (default: 0)')
+    parser.add_argument('--drop_size', type=int, default=4, metavar='GC',
+                        help='Dropblock size (default: 4)')
     parser.add_argument('--weight_decay', type=float, default=0., metavar='GC',
                         help='L2 regularization (default: 0)')
     parser.add_argument('--pretraining', type=bool, default=False, metavar='GC',
@@ -73,6 +75,7 @@ class Encoder(nn.Module):
         latent_dim: int,
         activation: str = "relu",
         dropout: float = 0.0,
+        drop_size: int = 4,
     ):
         super().__init__()
         sizes = [
@@ -107,6 +110,7 @@ class Encoder(nn.Module):
                         use_1x1conv=False,
                         activation=chosen_activation,
                         dropout=dropout,
+                        drop_size=drop_size
                     )
                 )
             else:
@@ -119,6 +123,7 @@ class Encoder(nn.Module):
                         use_1x1conv=True,
                         activation=chosen_activation,
                         dropout=dropout,
+                        drop_size=drop_size
                     )
                 )
         # the output layer image size is hardcoded because the first layer
@@ -139,6 +144,7 @@ class Decoder(nn.Module):
         activation: str = "relu",
         dropout: float = 0.0,
         output_activation: str = "sigmoid",
+        drop_size: int = 4,
     ):
         super().__init__()
         sizes = [128, 64, 32, 16, 8, 4, out_channels]
@@ -174,6 +180,7 @@ class Decoder(nn.Module):
                         upsample_size=2,
                         activation=chosen_output,
                         batch_norm=False,
+                        drop_size=0
                     )
                 )
             else:
@@ -185,6 +192,7 @@ class Decoder(nn.Module):
                         upsample_size=2,
                         activation=chosen_activation,
                         dropout=dropout,
+                        drop_size=drop_size
                     )
                 )
         self.model = nn.Sequential(*model)
@@ -214,6 +222,7 @@ class AutoEncoder(pl.LightningModule):
         h5_path: Union[None, str] = None,
         train_indices: Union[np.ndarray, Iterable, None] = None,
         test_indices: Union[np.ndarray, Iterable, None] = None,
+        drop_size: int = 4,
         **kwargs,
     ):
         super().__init__()
@@ -717,6 +726,7 @@ class VAE(AutoEncoder):
         # nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
         nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
         self.save_hyperparameters()
+        self.hparams.beta = beta
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -1097,11 +1107,81 @@ class VAEGAN(AEGAN):
         )
 
 
+class PixelVAE(VAE):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        beta: float = 4.0,
+        latent_dim: int = 64,
+        lr: float = 1e-3,
+        weight_decay: float = 0.0,
+        split_true: bool = False,
+        activation: str = "relu",
+        dropout: float = 0.0,
+        pretraining: bool = False,
+        train_seed: int = 42,
+        test_seed: int = 1923,
+        n_workers: int = 8,
+        batch_size: int = 64,
+        h5_path: Union[None, str] = None,
+        train_indices: Union[np.ndarray, Iterable, None] = None,
+        test_indices: Union[np.ndarray, Iterable, None] = None,
+        pixel_layers: int = 3,
+        pixel_hidden: int = 128,
+        chosen_output: str = "sigmoid",
+        **kwargs,
+    ):
+        super().__init__(
+            in_channels,
+            out_channels,
+            beta,
+            latent_dim,
+            lr,
+            weight_decay,
+            split_true,
+            activation,
+            dropout,
+            pretraining,
+            train_seed,
+            test_seed,
+            n_workers,
+            batch_size,
+            h5_path,
+            train_indices,
+            test_indices,
+            chosen_output="null",
+            **kwargs,
+        )
+        self.fc_mu = nn.Linear(latent_dim, latent_dim)
+        self.fc_logvar = nn.Linear(latent_dim, latent_dim)
+        self.apply(initialize_weights)
+        # in the event KLdiv goes to NaN, make sure weights are small
+        # nn.init.uniform_(self.fc_logvar.weight, -1e-3, 1e-3)
+        nn.init.uniform_(self.fc_logvar.bias, -1e-3, 1e-3)
+        # Add PixelCNN to the output of the decoder lol
+        self.decoder.add_module("pixelcnn", PixelCNN(1, pixel_hidden, pixel_layers))
+        self.decoder.add_module("sig_output", nn.Sigmoid())
+        self.save_hyperparameters()
+
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = common_hyperparameters(parent_parser)
+        parser.add_argument('--beta', type=float, default=1., metavar='GC',
+                    help='Beta coefficient for prior regularization (default: 1)')
+        parser.add_argument('--pixel_hidden', type=int, default=64, metavar='GC',
+                    help='Number of hidden units for PixelCNN (default: 64)')
+        parser.add_argument('--pixel_layers', type=int, default=64, metavar='GC',
+                    help='Number of layers for PixelCNN (default: 3)')
+        return parser
+
+
 # this creates a mapping useful for argparse
 valid_models = {
     "baseline": AutoEncoder,
     "aeseg": AESeg,
     "vae": VAE,
     "aegan": AEGAN,
-    "vaegan": VAEGAN
+    "vaegan": VAEGAN,
+    "pixelvae": PixelVAE
 }

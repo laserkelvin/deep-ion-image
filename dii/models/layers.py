@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.modules.dropout import Dropout
+from dropblock import DropBlock2D
 
 
 class ConvolutionBlock(nn.Module):
@@ -42,6 +42,7 @@ class DecoderBlock(nn.Module):
         batch_norm=True,
         reflection=1,
         padding=0,
+        drop_size=4,
         **kwargs
     ):
         super().__init__()
@@ -56,7 +57,7 @@ class DecoderBlock(nn.Module):
             self.norm = nn.BatchNorm2d(out_channels)
         else:
             self.norm = None
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = DropBlock2D(dropout, drop_size)
         self.upsample_size = upsample_size
         self.reflection_pad = nn.ReflectionPad2d(reflection)
 
@@ -116,6 +117,7 @@ class ResidualBlock(nn.Module):
         pool: int = 0,
         upsample: int = 0,
         dropout: float = 0.0,
+        drop_size: int = 4,
     ):
         super().__init__()
         layers = nn.ModuleList()
@@ -130,7 +132,7 @@ class ResidualBlock(nn.Module):
                     padding=1,
                     stride=stride,
                 ),
-                nn.Dropout(dropout),
+                DropBlock2D(dropout, drop_size),
                 nn.BatchNorm2d(num_channels),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(
