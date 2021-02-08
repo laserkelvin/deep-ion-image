@@ -13,7 +13,6 @@ from torch.utils.data import DataLoader
 from dii.models import layers
 from dii.models.unet import UnetEncoder, UnetDecoder
 from dii.pipeline import datautils, transforms
-from dii.visualization.visualize import get_input_gradients
 from pl_bolts.models.vision import PixelCNN
 
 
