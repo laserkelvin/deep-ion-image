@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, List, Iterable
 
 import numpy as np
 import torch
@@ -9,8 +9,7 @@ from matplotlib import pyplot as plt
 
 def weight_visualization(model: nn.Module, n_rows: int = 8, padding: int = 1):
     for index, module in enumerate(model.modules()):
-        mod_type = module.__class__.__name__
-        if "Conv" in mod_type:
+        if isinstance(module, nn.Conv2d):
             weights = module.weight
             kernel_size = weights.size(-1)
             # flatten the layer into just kernels
@@ -26,7 +25,7 @@ def weight_visualization(model: nn.Module, n_rows: int = 8, padding: int = 1):
             fig.savefig(f"layer{index}_weights.png", dpi=150)
 
 
-def radial_profile(data, center) -> np.ndarray:
+def radial_profile(data: np.ndarray, center: Iterable[float, float]) -> np.ndarray:
     y, x = np.indices((data.shape))
     r = np.sqrt((x - center[0])**2 + (y - center[1])**2)
     r = r.astype(np.int)
@@ -34,4 +33,24 @@ def radial_profile(data, center) -> np.ndarray:
     tbin = np.bincount(r.ravel(), data.ravel())
     nr = np.bincount(r.ravel())
     radialprofile = tbin / nr
-    return radialprofile 
+    return radialprofile
+
+
+def show_torch_grid(X: Union[torch.Tensor, List[torch.Tensor]], ax=None, **kwargs):
+    """
+    Quick method for creating a matplotlib image grid from
+    a tensor or a list of tensors. Wraps the `torchvision.utilts.make_grid`
+    function, and `kwargs` are passed into this function.
+
+    Parameters
+    ----------
+    X : Union[torch.Tensor, List[torch.Tensor]]
+        Tensor(s) to make the image grid with
+    ax : [type], optional
+        Instance of a matplotlib `axis` object, by default None
+    """
+    grid = make_grid(X, **kwargs)
+    if not ax:
+        return plt.imshow(grid.permute(1, 2, 0))
+    else:
+        return ax.imshow(grid.permute(1, 2, 0))
