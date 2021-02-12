@@ -10,3 +10,6 @@ vae:
 pixelvae:
 	papermill template.ipynb pixelvae_results.ipynb \
 	  -f model-parameters/pixelvae.yml
+
+all:
+	$(baseline) $(vae) $(pixelvae)
