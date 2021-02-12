@@ -20,6 +20,8 @@ pytorch
 torchvision
 pytorch-lightning
 pytorch-lightning-bolts
+papermill
+peakutils
 
 # backwards compatibility
 pathlib2
