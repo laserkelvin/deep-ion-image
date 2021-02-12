@@ -192,8 +192,8 @@ class Decoder(nn.Module):
                         kernel_size=5,
                         upsample_size=2,
                         activation=chosen_activation,
-                        dropout=dropout,
-                        drop_size=drop_size
+                        dropout=0.,
+                        drop_size=0.
                     )
                 )
         self.model = nn.Sequential(*model)
