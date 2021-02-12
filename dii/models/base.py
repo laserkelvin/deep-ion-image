@@ -1,5 +1,6 @@
 from typing import Dict, List, Union, Iterable, Tuple
 from argparse import ArgumentParser
+from warnings import warn
 
 import torch
 import pytorch_lightning as pl
@@ -807,6 +808,48 @@ class VAE(AutoEncoder):
                 "samples": wandb.Image(sample_grid),
             }
         )
+
+    def weighted_predict(self, x: Union[torch.Tensor, np.ndarray], n: int = 200) -> torch.Tensor:
+        """
+        Run VAE sampling on a single input image `n` times as a minibatch.
+        The input image `x` is expected to be a single image, either
+        with a single or no channels (1 x h x w) or (h x w).
+        
+        The behavior of this function is also modified to produce the 
+
+        Parameters
+        ----------
+        x : Union[torch.Tensor, np.ndarray]
+            Input image with dimensions (1 x h x w) or (h x w).
+            The input is converted into a `torch.Tensor` if a `ndarray` is
+            passed.
+        n : int, optional
+            Number of samples to compute, by default 200.
+
+        Returns
+        -------
+        torch.Tensor
+            VAE samples conditioned on `x` with shape
+            (`n` x 1 x h x w)
+        """
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x).float()
+        # this is for a single image with no channels
+        if x.ndim == 2:
+            x.unsqueeze_(0)
+        # Repeat the inputs that many times, and move it to
+        # the same device as the model
+        X = x.repeat(n, 1, 1, 1).to(self.device)
+        with torch.no_grad():
+            z, Y, p, q = self._run_step(X)
+            # compute posterior likelihood
+            log_qz = q.log_prob(z)
+            # this is a 1D tensor of n (batch) items
+            img_weights = log_qz.sum(dim=0).exp_()
+            normalize = img_weights.sum()
+            norm_weights = (img_weights / normalize)
+            composite = Y.sum(dim=0) / norm_weights.view(-1, 1)
+        return Y
 
 
 class PixelCNNAutoEncoder(AutoEncoder):
