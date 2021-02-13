@@ -120,7 +120,7 @@ class CompositeH5Dataset(H5Dataset):
         scale: float = 2.0,
         seed=None,
         indices=None,
-        max_composites: int = 6,
+        max_composites: int = 9,
         mask_threshold: float = 0.1,
         rng_type: str = "uniform",
     ):
