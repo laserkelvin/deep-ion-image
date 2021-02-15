@@ -92,7 +92,8 @@ class H5Dataset(data.Dataset):
         with h5py.File(self.file_path, "r") as file:
             self.dataset_len = len(file[self.key])
         self.indices = indices
-        self.rng = np.random.default_rng(seed)
+        # self.rng = np.random.default_rng(seed)
+        self.rng = np.random.seed()
 
     def __getitem__(self, index: int) -> torch.Tensor:
         if self.dataset is None:
