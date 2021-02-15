@@ -93,7 +93,7 @@ class H5Dataset(data.Dataset):
             self.dataset_len = len(file[self.key])
         self.indices = indices
         # self.rng = np.random.default_rng(seed)
-        self.rng = np.random.seed()
+        self.rng = np.random.default_rng()
 
     def __getitem__(self, index: int) -> torch.Tensor:
         if self.dataset is None:
@@ -150,7 +150,7 @@ class CompositeH5Dataset(H5Dataset):
         seed : [type], optional
             Random seed to use for the image generation, by default None
         """
-        super().__init__(path, key, transform, target_transform)
+        super().__init__(path, key, transform, target_transform, seed=seed)
         self.scale = scale
         self.rng_type = rng_type
         self.indices = None
