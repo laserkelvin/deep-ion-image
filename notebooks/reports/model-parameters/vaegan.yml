@@ -3,5 +3,5 @@ model_kwargs:
   out_channels: 1
   latent_dim: 64
   activation: "silu"
-probabilistic: false
-model_name: "aegan"
+probabilistic: true
+model_name: "vaegan"

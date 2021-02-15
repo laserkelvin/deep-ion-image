@@ -1,22 +1,9 @@
 
-baseline:
-	papermill template.ipynb baseline_results.ipynb \
-	  -f model-parameters/baseline.yml
+NAMES = baseline vae pixelvae aegan vaegan
 
-vae:
-	papermill template.ipynb vae_results.ipynb \
-	  -f model-parameters/vae.yml
+all: $(NAMES)
 
-pixelvae:
-	papermill template.ipynb pixelvae_results.ipynb \
-	  -f model-parameters/pixelvae.yml
+$(NAMES):
+	papermill template.ipynb $@_results.ipynb -f model-parameters/$@.yml
+	jupyter nbconvert --to PDF $@_results.ipynb
 
-aegan:
-	papermill template.ipynb aegan_results.ipynb \
-	  -f model-parameters/aegan.yml
-
-all:
-	baseline
-	vae
-	pixelvae
-	aegan
