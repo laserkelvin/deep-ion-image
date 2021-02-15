@@ -13,6 +13,7 @@ scipy
 matplotlib
 python-dotenv>=0.5.1
 h5py
+loguru
 scikit-learn
 scikit-image
 dropblock
