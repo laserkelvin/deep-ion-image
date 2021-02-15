@@ -24,7 +24,7 @@ class AddNoise(object):
     def __call__(self, X: np.ndarray) -> np.ndarray:
         # make sure to normalize intensity, otherwise poisson blows up
         X = X / (X.max())
-        var = 10**np.random.uniform(-5., 0.2)
+        var = 10**np.random.uniform(-4., 0.)
         # model Gaussian noise with random variance
         gaussian_noise = np.random.normal(0., var, size=X.shape)
         # model signal dependent Poisson noise

@@ -54,3 +54,30 @@ def show_torch_grid(X: Union[torch.Tensor, List[torch.Tensor]], ax=None, **kwarg
         return plt.imshow(grid.permute(1, 2, 0))
     else:
         return ax.imshow(grid.permute(1, 2, 0))
+
+
+def half_half_image(true: np.ndarray, predicted: np.ndarray) -> np.ndarray:
+    """
+    Fills one half of an image with the true and the other with
+    the predicted distribution for side-by-side comparison. The
+    image dimensions must be the same.
+
+    Parameters
+    ----------
+    true : np.ndarray
+        True/input image
+    predicted : np.ndarray
+        Reconstructed image, or really anything you like
+
+    Returns
+    -------
+    np.ndarray
+        Half/half image. The left corresponds to the input/true
+        image, and the right side corresponds to the `predicted`.
+    """
+    assert true.shape == predicted.shape
+    new_image = np.zeros_like(true)
+    center = (true.shape[0] // 2)
+    new_image[:,:center] = true[:,:center]
+    new_image[:,center:] = predicted[:,center:]
+    return new_image
