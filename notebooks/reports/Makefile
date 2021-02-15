@@ -7,3 +7,5 @@ $(NAMES):
 	papermill template.ipynb $@_results.ipynb -f model-parameters/$@.yml
 	jupyter nbconvert --to PDF $@_results.ipynb
 
+report:
+	pandoc model_report.md -o model_report.pdf --template=eisvogel --pdf-engine=xelatex
