@@ -248,8 +248,7 @@ class AutoEncoder(pl.LightningModule):
         optimizer = torch.optim.Adam(
             self.parameters(), self.hparams.lr, weight_decay=self.hparams.weight_decay
         )
-        scheduler = torch.optim.ReduceLROnPlateau(optimizer)
-        return [optimizer], [scheduler]
+        return optimizer
 
     def _reconstruction_loss(self, pred_Y: torch.Tensor, Y: torch.Tensor):
         # compute the pixelwise loss
