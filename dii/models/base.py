@@ -1113,6 +1113,9 @@ class VAEGAN(AEGAN):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return self.autoencoder(X)
 
+    def _run_step(self, X: torch.Tensor):
+        return self.autoencoder._run_step(X)
+
     def _gen_loss(self, X: torch.Tensor, Y: torch.Tensor):
         z, pred_images, p, q = self.autoencoder._run_step(X)
         # this is modified to use the VAE loss instead of the straight
