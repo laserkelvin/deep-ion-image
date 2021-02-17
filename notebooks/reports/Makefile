@@ -1,6 +1,6 @@
 
 NAMES = baseline vae pixelvae aegan vaegan
-#PROB = vae pixelvae vaegan
+PROB = vae pixelvae vaegan
 
 all: common probabilistic report
 
