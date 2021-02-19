@@ -161,3 +161,71 @@ def create_ion_image_composite(
         h5_file.create_dataset("test", (len(test),), dtype=np.uint16, data=test)
     finally:
         h5_file.close()
+
+
+def create_ion_image_grid(
+    filepath: str,
+    dim=128,
+    seed=169016,
+    n_jobs=1,
+) -> np.ndarray:
+    logger.info("Generating uniformly spaced image library")
+    center = dim // 2
+    parameters = np.mgrid[-1.:2.:20j, center*0.1:center*0.8:50j, 0.1:5.:50j].reshape(3, -1).T
+    n_images = parameters.shape[0]
+    logger.info(f"Generating {n_images} ion images.")
+    h5_file = h5py.File(filepath, mode="a")
+    beta_values = h5_file.create_dataset(
+            "beta", dtype=np.float32, data=parameters[:,0]
+    )
+    mu_values = h5_file.create_dataset(
+            "centers",  dtype=np.float32, data=parameters[:,1]
+    )
+    sigma_values = h5_file.create_dataset(
+            "sigma", dtype=np.float32, data=parameters[:,2]
+    )
+    try:
+        # serial processing
+        if n_jobs == 1:
+            for index, img_params in tqdm(
+                enumerate(parameters)
+            ):
+                beta_i, mu_i, sigma_i = img_params
+                true_image, projection = generate_image(mu_i, sigma_i, beta_i, dim)
+                true_images[index, :, :] = true_image
+                projections[index, :, :] = projection
+        elif n_jobs > 1:
+            data = Parallel(n_jobs=n_jobs)(
+                delayed(generate_image)(img_params[1], img_params[2], img_params[0], dim)
+                for img_params in tqdm(parameters)
+            )
+            temp_true, temp_projection = list(), list()
+            for image_pair in data:
+                true_image, projection = image_pair
+                temp_true.append(true_image)
+                temp_projection.append(projection)
+            true_images = h5_file.create_dataset(
+                "true",
+                (n_images, dim, dim),
+                dtype=np.float32,
+                data=np.array(temp_true, dtype=np.float32),
+            )
+            projections = h5_file.create_dataset(
+                "projection",
+                (n_images, dim, dim),
+                dtype=np.float32,
+                data=np.array(temp_projection, dtype=np.float32),
+            )
+        # do the train/test/dev split; 10% dev, 10% test, and 80% train
+        indices = np.arange(n_images, dtype=int)
+        rng = np.random.default_rng(seed)
+        rng.shuffle(indices)
+        short_num = int(n_images * 0.1)
+        dev = indices[:short_num]
+        test = indices[short_num : short_num * 2]
+        train = indices[short_num * 2 :]
+        h5_file.create_dataset("train", (len(train),), dtype=np.uint16, data=train)
+        h5_file.create_dataset("dev", (len(dev),), dtype=np.uint16, data=dev)
+        h5_file.create_dataset("test", (len(test),), dtype=np.uint16, data=test)
+    finally:
+        h5_file.close()
