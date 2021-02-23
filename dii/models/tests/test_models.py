@@ -1,6 +1,6 @@
 import torch
 from torchsummary import summary
-from ..base import VAE, AutoEncoder, PixelVAE
+from ..base import VAE, AutoEncoder, PixelVAE, SVAEGAN
 
 
 def _run_stack(model: torch.nn.Module, in_channels: int = 1, img_size: int = 128, cuda: bool = True):
@@ -19,6 +19,13 @@ def _check_shape(model: torch.nn.Module, in_channels: int = 1, img_size: int = 1
     X = torch.rand(64, in_channels, img_size, img_size, device=model.device)
     assert X.shape == model(X).shape
     assert model(X).shape == (64, in_channels, img_size, img_size)
+
+
+def _check_gan(model: torch.nn.Module, in_channels: int = 1, img_size: int = 128):
+    # this checks that the input and output image sizes are the same
+    X = torch.rand(64, in_channels, img_size, img_size, device=model.device)
+    # make sure the outputs are sigmoid and one dimensional
+    assert (64, 1) == model.discriminator(X).shape
 
 
 def test_autoencoder():
@@ -57,3 +64,16 @@ def test_pixelvae():
     _run_stack(model, cuda=False)
     # now check the output shape
     _check_shape(model)
+
+
+def test_svaegan():
+    # first test default sizes
+    model = SVAEGAN(in_channels=1, out_channels=1)
+    _run_stack(model)
+    # now test non-default dimensions to make sure the encoder-decoder
+    # stack is talking properly
+    model = SVAEGAN(in_channels=1, out_channels=1, latent_dim=32)
+    _run_stack(model)
+    # now check the output shape
+    _check_shape(model)
+

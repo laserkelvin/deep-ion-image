@@ -1153,6 +1153,74 @@ class VAEGAN(AEGAN):
         )
 
 
+class SVAEGAN(VAEGAN):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        beta: float = 4.0,
+        latent_dim: int = 128,
+        lr: float = 1e-3,
+        weight_decay: float = 0.0,
+        split_true: bool = False,
+        activation: str = "prelu",
+        dropout: float = 0.0,
+        train_seed: int = 42,
+        test_seed: int = 1923,
+        n_workers: int = 8,
+        batch_size: int = 64,
+        h5_path: Union[None, str] = None,
+        train_indices: Union[np.ndarray, Iterable, None] = None,
+        test_indices: Union[np.ndarray, Iterable, None] = None,
+        training: bool = True,
+        **kwargs,
+    ):
+        super().__init__(
+            in_channels,
+            out_channels,
+            beta=beta,
+            latent_dim=latent_dim,
+            lr=lr,
+            weight_decay=weight_decay,
+            split_true=split_true,
+            activation=activation,
+            dropout=dropout,
+            train_seed=train_seed,
+            test_seed=test_seed,
+            n_workers=n_workers,
+            batch_size=batch_size,
+            h5_path=h5_path,
+            train_indices=train_indices,
+            test_indices=test_indices,
+            **kwargs,
+        )
+        # swap out the autoencoder for a variational one
+        del self.autoencoder
+        self.autoencoder = VAE(
+            in_channels,
+            out_channels,
+            beta=beta,
+            latent_dim=latent_dim,
+            lr=lr,
+            weight_decay=weight_decay,
+            split_true=split_true,
+            activation=activation,
+            dropout=dropout,
+            train_seed=train_seed,
+            test_seed=test_seed,
+            n_workers=n_workers,
+            batch_size=batch_size,
+            h5_path=h5_path,
+            train_indices=train_indices,
+            test_indices=test_indices,
+            **kwargs,
+        )
+        del self.discriminator
+        # reuse the encoder as the discriminator
+        self.discriminator = nn.Sequential(*[self.autoencoder.encoder, nn.Linear(latent_dim, 1), nn.Sigmoid()])
+        self.save_hyperparameters()
+
+
 class PixelVAE(VAE):
     def __init__(
         self,
@@ -1229,5 +1297,6 @@ valid_models = {
     "vae": VAE,
     "aegan": AEGAN,
     "vaegan": VAEGAN,
-    "pixelvae": PixelVAE
+    "pixelvae": PixelVAE,
+    "svaegan": SVAEGAN
 }
