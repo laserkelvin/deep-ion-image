@@ -171,7 +171,7 @@ def create_ion_image_grid(
 ) -> np.ndarray:
     logger.info("Generating uniformly spaced image library")
     center = dim // 2
-    parameters = np.mgrid[-1.:2.:20j, center*0.1:center*0.8:50j, 0.1:5.:50j].reshape(3, -1).T
+    parameters = np.mgrid[-1.:2.:30j, center*0.1:center*0.8:70j, 0.5:4.:50j].reshape(3, -1).T
     n_images = parameters.shape[0]
     logger.info(f"Generating {n_images} ion images.")
     h5_file = h5py.File(filepath, mode="a")
@@ -224,8 +224,11 @@ def create_ion_image_grid(
         dev = indices[:short_num]
         test = indices[short_num : short_num * 2]
         train = indices[short_num * 2 :]
-        h5_file.create_dataset("train", (len(train),), dtype=np.uint16, data=train)
-        h5_file.create_dataset("dev", (len(dev),), dtype=np.uint16, data=dev)
-        h5_file.create_dataset("test", (len(test),), dtype=np.uint16, data=test)
+        dev.sort()
+        test.sort()
+        train.sort()
+        h5_file.create_dataset("train", (len(train),), dtype=np.uint32, data=train)
+        h5_file.create_dataset("dev", (len(dev),), dtype=np.uint32, data=dev)
+        h5_file.create_dataset("test", (len(test),), dtype=np.uint32, data=test)
     finally:
         h5_file.close()
