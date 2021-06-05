@@ -16,6 +16,7 @@ h5py
 loguru
 scikit-learn
 scikit-image
+pyabel
 dropblock
 pytorch-lightning
 pytorch-lightning-bolts
