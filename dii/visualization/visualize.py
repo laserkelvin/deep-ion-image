@@ -1,10 +1,15 @@
-from typing import Union, List, Iterable
+from typing import Union, List, Iterable, Tuple, Callable, Dict
 
 import numpy as np
 import torch
 from torch import nn
 from torchvision.utils import make_grid
 from matplotlib import pyplot as plt
+from skimage.metrics import peak_signal_noise_ratio
+from skimage.util import random_noise
+
+from dii.pipeline.make_dataset import generate_image
+from dii.pipeline.transforms import Normalize
 
 
 def weight_visualization(model: nn.Module, n_rows: int = 8, padding: int = 1):
@@ -49,11 +54,12 @@ def show_torch_grid(X: Union[torch.Tensor, List[torch.Tensor]], ax=None, **kwarg
     ax : [type], optional
         Instance of a matplotlib `axis` object, by default None
     """
-    grid = make_grid(X, **kwargs)
+    # we don't have a channel dimension
+    grid = make_grid(X, **kwargs).sum(dim=0)
     if not ax:
-        return plt.imshow(grid.permute(1, 2, 0))
+        return plt.imshow(grid)
     else:
-        return ax.imshow(grid.permute(1, 2, 0))
+        return ax.imshow(grid)
 
 
 def half_half_image(true: np.ndarray, predicted: np.ndarray) -> np.ndarray:
@@ -81,3 +87,65 @@ def half_half_image(true: np.ndarray, predicted: np.ndarray) -> np.ndarray:
     new_image[:,:center] = true[:,:center]
     new_image[:,center:] = predicted[:,center:]
     return new_image
+
+
+def generate_multiple_rings(n_rings: int, img_size: int = 128, beta: Union[Iterable, float] = 0.) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Generate an image with `n_rings` concentric, linearly spaced, isotropic rings.
+    """
+    try:
+        # if we can't iterate over the beta values
+        iter(beta)
+    except TypeError:
+        # if we're using one beta value, just copy it
+        # `n_rings` times
+        beta = [beta,] * n_rings
+    center = img_size // 2
+    # same as used for the image generation pipeline
+    min_size, max_size = center * 0.1, center * 0.8
+    # generate a number of concentric rings
+    centers = np.linspace(min_size, max_size, n_rings)
+    central_image = np.zeros((img_size, img_size), dtype=np.float32)
+    projection = np.zeros_like(central_image)
+    for center, b in zip(centers, beta):
+        temp_central, temp_projection = generate_image(center, 1.5, b, img_size)
+        central_image += (temp_central / temp_central.max())
+        projection += (temp_projection / temp_projection.max())
+    central_image /= central_image.max()
+    projection /= projection.max()
+    return (central_image, projection)
+
+
+def add_noise(image: np.ndarray, rng: "Generator", var: float) -> Tuple[np.ndarray, float]:
+    """
+    Adds an amount of Gaussian and Poisson noise to the image.
+    """
+    gaussian_noise = rng.normal(0., var, size=image.shape)
+    poisson_image = random_noise(image, "poisson", clip=True)
+    result = (gaussian_noise + poisson_image).astype(np.float32)
+    normalize = Normalize()
+    result = normalize(result)
+    image = normalize(image)
+    snr = peak_signal_noise_ratio(image, result)
+    return (result, snr)
+
+
+class FeatureExtraction(nn.Module):
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+        self._features = {}
+
+        for name, layer in self.model.named_modules():
+            layer.__name__ = name
+            self._features[name] = torch.empty(0)
+            layer.register_forward_hook(self.save_outputs_hook(name))
+    
+    def save_outputs_hook(self, name: str) -> Callable:
+        def fn(_, __, output):
+            self._features[name] = output
+        return fn
+
+    def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
+        _ = self.model(x)
+        return self._features

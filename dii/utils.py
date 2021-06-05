@@ -48,7 +48,7 @@ def radial_integration(image: np.ndarray) -> np.ndarray:
 
 # DEFAULTS used by the Trainer
 checkpoint_callback = ModelCheckpoint(
-    filepath=os.getcwd(),
+    dirpath=os.getcwd(),
     save_top_k=1,
     verbose=True,
     monitor="validation_loss",
