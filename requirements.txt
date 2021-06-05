@@ -23,6 +23,7 @@ pytorch-lightning-bolts
 papermill
 peakutils
 nbconvert
+palettable
 
 # backwards compatibility
 pathlib2
