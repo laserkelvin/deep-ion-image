@@ -17,8 +17,6 @@ loguru
 scikit-learn
 scikit-image
 dropblock
-pytorch
-torchvision
 pytorch-lightning
 pytorch-lightning-bolts
 papermill

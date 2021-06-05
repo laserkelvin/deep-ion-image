@@ -1,0 +1,21 @@
+name: ion-image
+channels:
+  - defaults
+dependencies:
+  - python=3.7
+  - scipy
+  - numpy
+  - ipython
+  - numba
+  - h5py
+  - jupyter
+  - scikit-learn
+  - scikit-image
+  - scikit-learn-intelex
+  - dask
+  - dask-ml
+  - pytorch
+  - torchaudio
+  - cudatoolkit=10.2
+  - torchvision
+prefix: /home/kelvin/miniconda3/envs/ion-image
